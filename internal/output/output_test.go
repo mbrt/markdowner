@@ -53,7 +53,12 @@ func TestWriteFile(t *testing.T) {
 	}
 	body := "# Test\n\nHello world."
 
-	if err := WriteFile(dir, "test-article", fm, body); err != nil {
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    body,
+		Filename:    "test-article",
+	}
+	if err := WriteFile(dir, doc); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -88,7 +93,7 @@ func TestWriteFile_NoTags(t *testing.T) {
 		Date:  time.Now(),
 	}
 
-	if err := WriteFile(dir, "no-tags", fm, "body"); err != nil {
+	if err := WriteFile(dir, Doc{Frontmatter: fm, Filename: "no-tags", Markdown: "body"}); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -107,7 +112,7 @@ func TestWriteFile_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Date: time.Now()}
 
-	if err := WriteFile(dir, "x", fm, ""); err != nil {
+	if err := WriteFile(dir, Doc{Frontmatter: fm, Filename: "x"}); err != nil {
 		t.Fatalf("WriteFile() should create directory, got error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "x.md")); err != nil {

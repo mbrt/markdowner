@@ -20,9 +20,20 @@ type Frontmatter struct {
 	Tags  []string  `yaml:"tags,omitempty"`
 }
 
+// Doc holds the complete content of a fetched page, ready to write to disk.
+// Filename is the base filename (without .md extension).
+type Doc struct {
+	Frontmatter Frontmatter
+	Markdown    string
+	Filename    string
+}
+
 // WriteFile writes a Markdown file with YAML frontmatter to outDir.
-// filename should not include the .md extension.
-func WriteFile(outDir, filename string, fm Frontmatter, body string) error {
+// The filename is taken from doc.Filename and should not include the .md extension.
+func WriteFile(outDir string, doc Doc) error {
+	filename := doc.Filename
+	fm := doc.Frontmatter
+	body := doc.Markdown
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
