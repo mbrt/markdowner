@@ -2,7 +2,7 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -20,7 +20,7 @@ func init() {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("command failed", "err", err)
 		os.Exit(1)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/mbrt/markdowner/internal/fetch"
@@ -36,6 +37,6 @@ func runURL(_ *cobra.Command, args []string) error {
 	if err := output.WriteFile(urlOutDir, doc); err != nil {
 		return err
 	}
-	fmt.Printf("Written: %s/%s.md\n", urlOutDir, doc.Filename)
+	slog.Info("written", "path", urlOutDir+"/"+doc.Filename+".md")
 	return nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -50,26 +51,26 @@ func runInstapaper(*cobra.Command, []string) error {
 
 	docs, errs := instapaper.FetchDocs(ctx, client, since)
 	for _, err := range errs {
-		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		slog.Warn("fetching article", "err", err)
 	}
 
 	written := 0
 	for _, doc := range docs {
 		if err := output.WriteFile(instapaperOutDir, doc); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: writing %q: %v\n", doc.Filename, err)
+			slog.Warn("writing article", "filename", doc.Filename, "err", err)
 			continue
 		}
-		fmt.Printf("  Written: %s/%s.md\n", instapaperOutDir, doc.Filename)
+		slog.Info("written", "path", instapaperOutDir+"/"+doc.Filename+".md")
 		written++
 	}
-	fmt.Printf("Written %d articles to %s\n", written, instapaperOutDir)
+	slog.Info("done", "written", written, "out_dir", instapaperOutDir)
 	return nil
 }
 
 func requireEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		fmt.Fprintf(os.Stderr, "error: environment variable %s is required\n", key)
+		slog.Error("required environment variable is not set", "key", key)
 		os.Exit(1)
 	}
 	return v
