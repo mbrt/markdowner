@@ -27,7 +27,7 @@ func init() {
 	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "", "only fetch articles added after this date (RFC3339 or YYYY-MM-DD)")
 }
 
-func runInstapaper(cmd *cobra.Command, args []string) error {
+func runInstapaper(*cobra.Command, []string) error {
 	var since time.Time
 	if instapaperSince != "" {
 		var err error

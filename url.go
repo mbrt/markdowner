@@ -23,7 +23,7 @@ func init() {
 	urlCmd.Flags().StringVar(&urlOutDir, "out-dir", ".", "output directory")
 }
 
-func runURL(cmd *cobra.Command, args []string) error {
+func runURL(_ *cobra.Command, args []string) error {
 	pageURL := args[0]
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

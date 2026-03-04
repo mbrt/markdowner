@@ -1,3 +1,4 @@
+// Package fetch provides utilities for fetching web page content.
 package fetch
 
 import (

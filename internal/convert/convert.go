@@ -1,3 +1,4 @@
+// Package convert provides HTML to Markdown conversion utilities.
 package convert
 
 import (

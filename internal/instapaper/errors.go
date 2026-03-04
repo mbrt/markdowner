@@ -2,6 +2,7 @@ package instapaper
 
 import "fmt"
 
+// Error codes returned by the Instapaper API and internal error constants.
 const (
 	ErrRateLimitExceeded    = 1040
 	ErrNotPremiumAccount    = 1041

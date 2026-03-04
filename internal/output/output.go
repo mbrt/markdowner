@@ -1,3 +1,4 @@
+// Package output handles writing converted content to files or stdout.
 package output
 
 import (

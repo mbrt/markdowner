@@ -1,3 +1,4 @@
+// Package instapaper provides a client for the Instapaper API.
 package instapaper
 
 import (

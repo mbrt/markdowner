@@ -1,3 +1,4 @@
+// markdowner converts web pages to markdown using the Instapaper API.
 package main
 
 import (
@@ -23,4 +24,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
