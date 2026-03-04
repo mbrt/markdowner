@@ -2,8 +2,10 @@ package instapaper
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBookmarkUnmarshal(t *testing.T) {
@@ -15,9 +17,7 @@ func TestBookmarkUnmarshal(t *testing.T) {
 	]`
 
 	var items []json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		t.Fatalf("unmarshal raw: %v", err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &items))
 
 	var bookmarks []Bookmark
 	for _, item := range items {
@@ -35,38 +35,16 @@ func TestBookmarkUnmarshal(t *testing.T) {
 		}
 	}
 
-	if len(bookmarks) != 2 {
-		t.Fatalf("expected 2 bookmarks, got %d", len(bookmarks))
-	}
-
-	b := bookmarks[0]
-	if b.ID != 42 {
-		t.Errorf("bookmark[0].ID = %d, want 42", b.ID)
-	}
-	if b.Title != "Test Article" {
-		t.Errorf("bookmark[0].Title = %q, want %q", b.Title, "Test Article")
-	}
-	if b.URL != "https://example.com" {
-		t.Errorf("bookmark[0].URL = %q, want %q", b.URL, "https://example.com")
-	}
-
-	b2 := bookmarks[1]
-	if len(b2.Tags) != 2 {
-		t.Fatalf("bookmark[1] expected 2 tags, got %d", len(b2.Tags))
-	}
-	if b2.Tags[0].Name != "tech" {
-		t.Errorf("bookmark[1].Tags[0].Name = %q, want %q", b2.Tags[0].Name, "tech")
-	}
+	require.Equal(t, []Bookmark{
+		{ID: 42, Title: "Test Article", URL: "https://example.com", Time: 1709294400, Description: "A test", Starred: "0", Tags: []Tag{}},
+		{ID: 99, Title: "Tagged", URL: "https://tagged.com", Time: 1709380800, Description: "", Starred: "1", Tags: []Tag{{ID: 1, Name: "tech"}, {ID: 2, Name: "go"}}},
+	}, bookmarks)
 }
 
 func TestAPIError_Error(t *testing.T) {
 	err := &APIError{StatusCode: 400, ErrorCode: ErrInvalidURL, Message: "bad url"}
 	got := err.Error()
-	if got == "" {
-		t.Error("APIError.Error() returned empty string")
-	}
-	// Should contain the status code and error code.
-	if !strings.Contains(got, "400") || !strings.Contains(got, "1240") {
-		t.Errorf("APIError.Error() = %q, want to contain status and error code", got)
-	}
+	assert.NotEmpty(t, got)
+	assert.Contains(t, got, "400")
+	assert.Contains(t, got, "1240")
 }

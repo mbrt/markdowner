@@ -1,8 +1,10 @@
 package convert
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFromHTML_Basic(t *testing.T) {
@@ -19,15 +21,9 @@ func TestFromHTML_Basic(t *testing.T) {
 </html>`
 
 	got, err := FromHTML("https://example.com/article", html)
-	if err != nil {
-		t.Fatalf("FromHTML() error = %v", err)
-	}
-	if got.Markdown == "" {
-		t.Error("expected non-empty Markdown")
-	}
-	if !strings.Contains(got.Markdown, "test paragraph") {
-		t.Errorf("Markdown does not contain expected content; got:\n%s", got.Markdown)
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, got.Markdown)
+	assert.Contains(t, got.Markdown, "test paragraph")
 }
 
 func TestFromHTML_Title(t *testing.T) {
@@ -38,19 +34,13 @@ func TestFromHTML_Title(t *testing.T) {
 </html>`
 
 	got, err := FromHTML("https://example.com/", html)
-	if err != nil {
-		t.Fatalf("FromHTML() error = %v", err)
-	}
-	if got.Title == "" {
-		t.Error("expected non-empty Title")
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, got.Title)
 }
 
 func TestFromHTML_InvalidURL(t *testing.T) {
 	_, err := FromHTML("://bad-url", "<html></html>")
-	if err == nil {
-		t.Error("expected error for invalid URL, got nil")
-	}
+	assert.Error(t, err)
 }
 
 func TestFromHTML_Headings(t *testing.T) {
@@ -68,11 +58,6 @@ func TestFromHTML_Headings(t *testing.T) {
 </html>`
 
 	got, err := FromHTML("https://example.com/heading", html)
-	if err != nil {
-		t.Fatalf("FromHTML() error = %v", err)
-	}
-	// html-to-markdown should produce ## or # markers
-	if !strings.Contains(got.Markdown, "#") {
-		t.Errorf("expected heading markers in Markdown; got:\n%s", got.Markdown)
-	}
+	require.NoError(t, err)
+	assert.Contains(t, got.Markdown, "#")
 }

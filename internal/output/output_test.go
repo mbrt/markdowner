@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSlugify(t *testing.T) {
@@ -26,21 +29,15 @@ func TestSlugify(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := Slugify(tt.input)
-			if got != tt.want {
-				t.Errorf("Slugify(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			assert.Equal(t, tt.want, Slugify(tt.input))
 		})
 	}
 }
 
 func TestSlugify_NoTrailingDash(t *testing.T) {
-	// A string that truncates at a dash boundary.
 	s := strings.Repeat("a", 79) + "-extra"
 	got := Slugify(s)
-	if strings.HasSuffix(got, "-") {
-		t.Errorf("Slugify result has trailing dash: %q", got)
-	}
+	assert.False(t, strings.HasSuffix(got, "-"), "result should not have trailing dash: %q", got)
 }
 
 func TestWriteFile(t *testing.T) {
@@ -58,31 +55,17 @@ func TestWriteFile(t *testing.T) {
 		Markdown:    body,
 		Filename:    "test-article",
 	}
-	if err := WriteFile(dir, doc); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	require.NoError(t, WriteFile(dir, doc))
 
 	content, err := os.ReadFile(filepath.Join(dir, "test-article.md"))
-	if err != nil {
-		t.Fatalf("reading output file: %v", err)
-	}
+	require.NoError(t, err)
 	s := string(content)
 
-	if !strings.HasPrefix(s, "---\n") {
-		t.Errorf("file should start with YAML frontmatter delimiter; got: %q", s[:20])
-	}
-	if !strings.Contains(s, "title: Test Article") {
-		t.Errorf("frontmatter missing title; got:\n%s", s)
-	}
-	if !strings.Contains(s, "url: https://example.com/test") {
-		t.Errorf("frontmatter missing url; got:\n%s", s)
-	}
-	if !strings.Contains(s, "- go") {
-		t.Errorf("frontmatter missing tags; got:\n%s", s)
-	}
-	if !strings.Contains(s, "Hello world.") {
-		t.Errorf("file missing body content; got:\n%s", s)
-	}
+	assert.True(t, strings.HasPrefix(s, "---\n"), "file should start with YAML frontmatter delimiter")
+	assert.Contains(t, s, "title: Test Article")
+	assert.Contains(t, s, "url: https://example.com/test")
+	assert.Contains(t, s, "- go")
+	assert.Contains(t, s, "Hello world.")
 }
 
 func TestWriteFile_NoTags(t *testing.T) {
@@ -93,18 +76,11 @@ func TestWriteFile_NoTags(t *testing.T) {
 		Date:  time.Now(),
 	}
 
-	if err := WriteFile(dir, Doc{Frontmatter: fm, Filename: "no-tags", Markdown: "body"}); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	require.NoError(t, WriteFile(dir, Doc{Frontmatter: fm, Filename: "no-tags", Markdown: "body"}))
 
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
-	if err != nil {
-		t.Fatalf("reading output file: %v", err)
-	}
-	// tags field should be omitted when empty
-	if strings.Contains(string(content), "tags:") {
-		t.Errorf("expected no tags field in frontmatter; got:\n%s", string(content))
-	}
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), "tags:")
 }
 
 func TestWriteFile_CreatesDirectory(t *testing.T) {
@@ -112,10 +88,7 @@ func TestWriteFile_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Date: time.Now()}
 
-	if err := WriteFile(dir, Doc{Frontmatter: fm, Filename: "x"}); err != nil {
-		t.Fatalf("WriteFile() should create directory, got error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "x.md")); err != nil {
-		t.Errorf("expected file to exist: %v", err)
-	}
+	require.NoError(t, WriteFile(dir, Doc{Frontmatter: fm, Filename: "x"}))
+	_, err := os.Stat(filepath.Join(dir, "x.md"))
+	assert.NoError(t, err)
 }
