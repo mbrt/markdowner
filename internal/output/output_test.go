@@ -62,6 +62,7 @@ func TestWriteFile(t *testing.T) {
 	s := string(content)
 
 	assert.True(t, strings.HasPrefix(s, "---\n"), "file should start with YAML frontmatter delimiter")
+	assert.Contains(t, s, "date: 2024-03-01T12:00:00Z")
 	assert.Contains(t, s, "title: Test Article")
 	assert.Contains(t, s, "url: https://example.com/test")
 	assert.Contains(t, s, "- go")

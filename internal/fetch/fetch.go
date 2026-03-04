@@ -12,6 +12,9 @@ import (
 	"github.com/mbrt/markdowner/internal/output"
 )
 
+// Maximize compatibility with various sites by using a common desktop browser user agent.
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+
 // URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
 // When downloadImages is true, external images are downloaded and stored in
 // Doc.Images.
@@ -20,7 +23,7 @@ func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, 
 	if err != nil {
 		return output.Doc{}, err
 	}
-	req.Header.Set("User-Agent", "markdowner/1.0")
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return output.Doc{}, err

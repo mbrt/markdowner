@@ -41,6 +41,7 @@ func WriteFile(outDir string, doc Doc) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating output directory: %w", err)
 	}
+	fm.Date = fm.Date.Truncate(time.Second)
 	fmBytes, err := yaml.Marshal(fm)
 	if err != nil {
 		return "", fmt.Errorf("marshaling frontmatter: %w", err)
