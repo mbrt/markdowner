@@ -75,26 +75,9 @@ func (c *Client) ListBookmarks(ctx context.Context, p BookmarkListParams) (*Book
 		return nil, &APIError{StatusCode: res.StatusCode, Message: err.Error(), ErrorCode: ErrHTTPError, WrappedError: err}
 	}
 
-	// The response is a JSON array of mixed objects; extract only bookmarks.
-	var raw []json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, &APIError{StatusCode: res.StatusCode, Message: err.Error(), ErrorCode: ErrUnmarshalError, WrappedError: err}
-	}
-
 	resp := &BookmarkListResponse{RawResponse: string(body)}
-	for _, item := range raw {
-		var typed struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(item, &typed); err != nil {
-			continue
-		}
-		if typed.Type == "bookmark" {
-			var b Bookmark
-			if err := json.Unmarshal(item, &b); err == nil {
-				resp.Bookmarks = append(resp.Bookmarks, b)
-			}
-		}
+	if err := json.Unmarshal(body, resp); err != nil {
+		return nil, &APIError{StatusCode: res.StatusCode, Message: err.Error(), ErrorCode: ErrUnmarshalError, WrappedError: err}
 	}
 	return resp, nil
 }

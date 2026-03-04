@@ -28,7 +28,8 @@ type Tag struct {
 
 // BookmarkListResponse is the response from the bookmarks/list endpoint.
 type BookmarkListResponse struct {
-	Bookmarks   []Bookmark
+	Bookmarks   []Bookmark  `json:"bookmarks"`
+	Highlights  []Highlight `json:"highlights"`
 	RawResponse string
 }
 
