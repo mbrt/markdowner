@@ -95,6 +95,25 @@ func TestWriteFile_CreatesDirectory(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestWriteFile_WritesImages(t *testing.T) {
+	dir := t.TempDir()
+	fm := Frontmatter{Title: "Img Test", URL: "https://example.com/img", Date: time.Now()}
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "![pic](img/abc123.png)",
+		Images: map[string][]byte{
+			"img/abc123.png": []byte("fakepng"),
+		},
+	}
+
+	_, err := WriteFile(dir, doc)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "img", "abc123.png"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("fakepng"), data)
+}
+
 func TestWriteFile_EmptyTitleFallsBackToURL(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Date: time.Now()}

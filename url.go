@@ -29,7 +29,7 @@ func runURL(_ *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		doc, err := fetch.URL(ctx, pageURL)
+		doc, err := fetch.URL(ctx, pageURL, downloadImages)
 		if err != nil {
 			return fmt.Errorf("fetching %q: %w", pageURL, err)
 		}

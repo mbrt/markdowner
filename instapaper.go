@@ -49,7 +49,7 @@ func runInstapaper(*cobra.Command, []string) error {
 		return fmt.Errorf("authenticating with Instapaper: %w", err)
 	}
 
-	docs, errs := instapaper.FetchDocs(ctx, client, since)
+	docs, errs := instapaper.FetchDocs(ctx, client, since, downloadImages)
 	for _, err := range errs {
 		slog.Warn("fetching article", "err", err)
 	}

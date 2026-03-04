@@ -23,7 +23,7 @@ func ParseDate(s string) (time.Time, error) {
 // FetchDocs fetches all bookmarks from the unread and archive folders,
 // converts them to Docs, and returns them. Errors for individual items are
 // returned alongside the partial results so callers can decide how to handle them.
-func FetchDocs(ctx context.Context, client *Client, since time.Time) ([]output.Doc, []error) {
+func FetchDocs(ctx context.Context, client *Client, since time.Time, downloadImages bool) ([]output.Doc, []error) {
 	folders := []string{FolderIDUnread, FolderIDArchive}
 	var docs []output.Doc
 	var errs []error
@@ -35,7 +35,7 @@ func FetchDocs(ctx context.Context, client *Client, since time.Time) ([]output.D
 			continue
 		}
 		for _, b := range bookmarks {
-			doc, err := bookmarkToDoc(ctx, client, b)
+			doc, err := bookmarkToDoc(ctx, client, b, downloadImages)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("bookmark %d (%q): %w", b.ID, b.Title, err))
 				continue
@@ -75,12 +75,12 @@ outer:
 	return all, nil
 }
 
-func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark) (output.Doc, error) {
+func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImages bool) (output.Doc, error) {
 	html, err := client.GetText(ctx, b.ID)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("getting text: %w", err)
 	}
-	contents, err := convert.FromHTML(b.URL, html)
+	contents, err := convert.FromHTML(ctx, b.URL, html, downloadImages)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("converting: %w", err)
 	}
@@ -111,5 +111,6 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark) (output.Doc,
 			Tags:  tags,
 		},
 		Markdown: body,
+		Images:   contents.Images,
 	}, nil
 }

@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestFromHTML_Basic(t *testing.T) {
 </body>
 </html>`
 
-	got, err := FromHTML("https://example.com/article", html)
+	got, err := FromHTML(context.Background(), "https://example.com/article", html, false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Markdown)
 	assert.Contains(t, got.Markdown, "test paragraph")
@@ -33,13 +34,13 @@ func TestFromHTML_Title(t *testing.T) {
 <body><article><p>Content.</p></article></body>
 </html>`
 
-	got, err := FromHTML("https://example.com/", html)
+	got, err := FromHTML(context.Background(), "https://example.com/", html, false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Title)
 }
 
 func TestFromHTML_InvalidURL(t *testing.T) {
-	_, err := FromHTML("://bad-url", "<html></html>")
+	_, err := FromHTML(context.Background(), "://bad-url", "<html></html>", false)
 	assert.Error(t, err)
 }
 
@@ -57,7 +58,7 @@ func TestFromHTML_Headings(t *testing.T) {
 </body>
 </html>`
 
-	got, err := FromHTML("https://example.com/heading", html)
+	got, err := FromHTML(context.Background(), "https://example.com/heading", html, false)
 	require.NoError(t, err)
 	assert.Contains(t, got.Markdown, "#")
 }

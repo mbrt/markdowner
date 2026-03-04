@@ -13,7 +13,9 @@ import (
 )
 
 // URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
-func URL(ctx context.Context, pageURL string) (output.Doc, error) {
+// When downloadImages is true, external images are downloaded and stored in
+// Doc.Images.
+func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return output.Doc{}, err
@@ -32,7 +34,7 @@ func URL(ctx context.Context, pageURL string) (output.Doc, error) {
 		return output.Doc{}, err
 	}
 
-	contents, err := convert.FromHTML(pageURL, string(b))
+	contents, err := convert.FromHTML(ctx, pageURL, string(b), downloadImages)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
 	}
@@ -44,5 +46,6 @@ func URL(ctx context.Context, pageURL string) (output.Doc, error) {
 			Date:  time.Now().UTC(),
 		},
 		Markdown: contents.Markdown,
+		Images:   contents.Images,
 	}, nil
 }

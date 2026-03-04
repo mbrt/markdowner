@@ -26,10 +26,14 @@ type Frontmatter struct {
 type Doc struct {
 	Frontmatter Frontmatter
 	Markdown    string
+	// Images maps relative local paths ("img/<sha>.<ext>") to raw image bytes.
+	// When non-empty, WriteFile writes each image blob to <outDir>/<key>.
+	Images map[string][]byte
 }
 
-// WriteFile writes a Markdown file with YAML frontmatter to outDir.
-// It returns the path of the written file.
+// WriteFile writes a Markdown file with YAML frontmatter to outDir, and writes
+// any image blobs in doc.Images to their corresponding relative paths under
+// outDir. It returns the path of the written Markdown file.
 func WriteFile(outDir string, doc Doc) (string, error) {
 	filename := slugify(targetName(doc))
 	fm := doc.Frontmatter
@@ -45,6 +49,15 @@ func WriteFile(outDir string, doc Doc) (string, error) {
 	path := filepath.Join(outDir, filename+".md")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("writing file %q: %w", path, err)
+	}
+	for relPath, data := range doc.Images {
+		dest := filepath.Join(outDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return "", fmt.Errorf("creating image directory: %w", err)
+		}
+		if err := os.WriteFile(dest, data, 0o644); err != nil {
+			return "", fmt.Errorf("writing image %q: %w", dest, err)
+		}
 	}
 	return path, nil
 }

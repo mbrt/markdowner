@@ -13,7 +13,10 @@ var rootCmd = &cobra.Command{
 	Short: "Convert web pages to Markdown",
 }
 
+var downloadImages bool
+
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&downloadImages, "download-images", false, "download external images and rewrite references to local paths")
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(instapaperCmd)
 }
