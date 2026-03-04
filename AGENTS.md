@@ -24,3 +24,12 @@ make format
 ### Before Committing
 
 Run `make test` to ensure all checks pass before committing changes.
+
+### Dependencies
+
+Always tidy after adding or removing dependencies:
+
+```bash
+go get $package
+go mod tidy
+```

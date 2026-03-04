@@ -13,7 +13,7 @@ Or build from source:
 ```sh
 git clone https://github.com/mbrt/markdowner
 cd markdowner
-go build -o markdowner .
+go build .
 ```
 
 ## Usage

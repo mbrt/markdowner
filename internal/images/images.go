@@ -1,4 +1,4 @@
-// Package images handles downloading external images referenced in Markdown and
+// Package images handles downloading external images referenced in HTML and
 // rewriting the references to point to locally saved copies.
 package images
 
@@ -7,61 +7,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"golang.org/x/crypto/sha3"
 )
-
-// reImage matches Markdown image syntax with an absolute http/https URL:
-//
-//	![alt text](https://example.com/img.png)
-//	![alt text](https://example.com/img.png "title")
-var reImage = regexp.MustCompile(`!\[([^\]]*)\]\((https?://[^\s)"']+)([^)]*)\)`)
-
-// Rewrite scans markdown for external image references, downloads each image,
-// and returns the updated markdown (with references replaced by relative local
-// paths of the form "img/<sha3-128hex>.<ext>") together with a map from those
-// local paths to the raw image bytes.
-//
-// Images that fail to download are left unchanged and a warning is logged.
-func Rewrite(ctx context.Context, markdown string) (string, map[string][]byte, error) {
-	// cache maps image URL -> local relative path (empty string = download failed).
-	cache := map[string]string{}
-	images := map[string][]byte{}
-
-	result := reImage.ReplaceAllStringFunc(markdown, func(match string) string {
-		sub := reImage.FindStringSubmatch(match)
-		if sub == nil {
-			return match
-		}
-		alt, imgURL, rest := sub[1], sub[2], sub[3]
-
-		if lp, seen := cache[imgURL]; seen {
-			if lp == "" {
-				return match
-			}
-			return fmt.Sprintf("![%s](%s%s)", alt, lp, rest)
-		}
-
-		lp, data, err := downloadImage(ctx, imgURL)
-		if err != nil {
-			slog.Warn("downloading image", "url", imgURL, "err", err)
-			cache[imgURL] = ""
-			return match
-		}
-		cache[imgURL] = lp
-		images[lp] = data
-		return fmt.Sprintf("![%s](%s%s)", alt, lp, rest)
-	})
-
-	return result, images, nil
-}
 
 func downloadImage(ctx context.Context, imgURL string) (string, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)

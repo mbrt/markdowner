@@ -8,6 +8,9 @@ import (
 	nurl "net/url"
 
 	md "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
 	"github.com/go-shiori/go-readability"
 	"github.com/mbrt/markdowner/internal/images"
 )
@@ -35,19 +38,28 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (C
 	if err != nil {
 		return Contents{}, fmt.Errorf("extracting article: %w", err)
 	}
-	mdc, err := md.ConvertString(article.Content)
-	if err != nil {
-		return Contents{}, fmt.Errorf("converting to markdown: %w", err)
-	}
 
+	var mdc string
 	var imgs map[string][]byte
 	if downloadImages {
-		var rewritten string
-		rewritten, imgs, err = images.Rewrite(ctx, mdc)
+		imgs = map[string][]byte{}
+		imgPlugin := images.NewPlugin(ctx, imgs)
+		conv := converter.NewConverter(
+			converter.WithPlugins(
+				base.NewBasePlugin(),
+				commonmark.NewCommonmarkPlugin(),
+				imgPlugin,
+			),
+		)
+		mdc, err = conv.ConvertString(article.Content, converter.WithContext(ctx))
 		if err != nil {
-			return Contents{}, fmt.Errorf("rewriting images: %w", err)
+			return Contents{}, fmt.Errorf("converting to markdown: %w", err)
 		}
-		mdc = rewritten
+	} else {
+		mdc, err = md.ConvertString(article.Content)
+		if err != nil {
+			return Contents{}, fmt.Errorf("converting to markdown: %w", err)
+		}
 	}
 
 	return Contents{

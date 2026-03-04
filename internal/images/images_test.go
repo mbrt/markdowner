@@ -7,21 +7,43 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRewrite_HappyPath(t *testing.T) {
+// runPlugin is a test helper that runs html through the converter with the
+// image-downloader plugin and returns the resulting markdown and downloaded
+// images map.
+func runPlugin(t *testing.T, html string) (string, map[string][]byte) {
+	t.Helper()
+	ctx := context.Background()
+	results := map[string][]byte{}
+	plugin := NewPlugin(ctx, results)
+	conv := converter.NewConverter(
+		converter.WithPlugins(
+			base.NewBasePlugin(),
+			commonmark.NewCommonmarkPlugin(),
+			plugin,
+		),
+	)
+	md, err := conv.ConvertString(html, converter.WithContext(ctx))
+	require.NoError(t, err)
+	return md, results
+}
+
+func TestPlugin_HappyPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		fmt.Fprint(w, "fakepng")
 	}))
 	defer srv.Close()
 
-	input := fmt.Sprintf("Before\n\n![an image](%s/photo.png)\n\nAfter", srv.URL)
+	html := fmt.Sprintf(`<p>Before</p><img src="%s/photo.png" alt="an image"><p>After</p>`, srv.URL)
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
+	gotMD, imgs := runPlugin(t, html)
 
 	assert.Contains(t, gotMD, "![an image](img/")
 	assert.Contains(t, gotMD, ".png)")
@@ -35,31 +57,33 @@ func TestRewrite_HappyPath(t *testing.T) {
 	}
 }
 
-func TestRewrite_FailedDownloadKeepsOriginal(t *testing.T) {
+func TestPlugin_FailedDownloadKeepsOriginal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	}))
 	defer srv.Close()
 
 	imgURL := srv.URL + "/missing.jpg"
-	input := fmt.Sprintf("![img](%s)", imgURL)
+	html := fmt.Sprintf(`<img src="%s" alt="img">`, imgURL)
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
-	assert.Equal(t, input, gotMD)
+	gotMD, imgs := runPlugin(t, html)
+
+	// The commonmark renderer takes over and emits the original URL.
+	assert.Contains(t, gotMD, imgURL)
 	assert.Empty(t, imgs)
 }
 
-func TestRewrite_NonHTTPURLUntouched(t *testing.T) {
-	input := "![local](./local.png) and ![data](data:image/png;base64,abc)"
+func TestPlugin_NonHTTPURLUntouched(t *testing.T) {
+	html := `<img src="./local.png" alt="local"><img src="data:image/png;base64,abc" alt="data">`
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
-	assert.Equal(t, input, gotMD)
+	gotMD, imgs := runPlugin(t, html)
+
+	assert.Contains(t, gotMD, "./local.png")
+	assert.Contains(t, gotMD, "data:image/png;base64,abc")
 	assert.Empty(t, imgs)
 }
 
-func TestRewrite_DuplicateURLDownloadedOnce(t *testing.T) {
+func TestPlugin_DuplicateURLDownloadedOnce(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
@@ -69,22 +93,22 @@ func TestRewrite_DuplicateURLDownloadedOnce(t *testing.T) {
 	defer srv.Close()
 
 	imgURL := fmt.Sprintf("%s/anim.gif", srv.URL)
-	input := fmt.Sprintf("![a](%s) and ![b](%s)", imgURL, imgURL)
+	html := fmt.Sprintf(`<img src="%s" alt="a"><img src="%s" alt="b">`, imgURL, imgURL)
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
+	gotMD, imgs := runPlugin(t, html)
+
 	assert.Equal(t, 1, calls, "image should only be downloaded once")
-
-	// Both references should point to the same local path.
 	require.Len(t, imgs, 1)
+
 	var localRef string
 	for k := range imgs {
 		localRef = k
 	}
-	assert.Equal(t, fmt.Sprintf("![a](%s) and ![b](%s)", localRef, localRef), gotMD)
+	assert.Contains(t, gotMD, fmt.Sprintf("![a](%s)", localRef))
+	assert.Contains(t, gotMD, fmt.Sprintf("![b](%s)", localRef))
 }
 
-func TestRewrite_ExtensionFromContentType(t *testing.T) {
+func TestPlugin_ExtensionFromContentType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/webp")
 		fmt.Fprint(w, "fakewebp")
@@ -92,10 +116,10 @@ func TestRewrite_ExtensionFromContentType(t *testing.T) {
 	defer srv.Close()
 
 	// URL has no recognisable extension.
-	input := fmt.Sprintf("![img](%s/image)", srv.URL)
+	html := fmt.Sprintf(`<img src="%s/image" alt="img">`, srv.URL)
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
+	gotMD, imgs := runPlugin(t, html)
+
 	assert.Contains(t, gotMD, ".webp)")
 	require.Len(t, imgs, 1)
 	for k := range imgs {
@@ -103,11 +127,10 @@ func TestRewrite_ExtensionFromContentType(t *testing.T) {
 	}
 }
 
-func TestRewrite_NoImages(t *testing.T) {
-	input := "Just some text without any images."
+func TestPlugin_NoImages(t *testing.T) {
+	html := `<p>Just some text without any images.</p>`
 
-	gotMD, imgs, err := Rewrite(context.Background(), input)
-	require.NoError(t, err)
-	assert.Equal(t, input, gotMD)
+	_, imgs := runPlugin(t, html)
+
 	assert.Empty(t, imgs)
 }
