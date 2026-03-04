@@ -3,11 +3,13 @@ package images
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"log/slog"
 	"strings"
 
 	"github.com/JohannesKaufmann/dom"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/net/html"
 )
 
@@ -54,13 +56,17 @@ func (p *Plugin) render(ctx converter.Context, w converter.Writer, n *html.Node)
 	// Resolve relative URLs to absolute before checking scheme.
 	src = ctx.AssembleAbsoluteURL(ctx, "img", src)
 
-	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
+	var localPath string
+	switch {
+	case strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://"):
+		localPath = p.localPathFor(src)
+	case strings.HasPrefix(src, "data:"):
+		localPath = p.localPathForEmbedded(src)
+	default:
 		return converter.RenderTryNext
 	}
-
-	localPath := p.localPathFor(src)
 	if localPath == "" {
-		// Download failed previously or now; fall back to normal rendering.
+		// Download/decode failed; fall back to normal rendering.
 		return converter.RenderTryNext
 	}
 
@@ -103,6 +109,31 @@ func (p *Plugin) localPathFor(imgURL string) string {
 	}
 
 	p.cache[imgURL] = lp
+	p.results[lp] = data
+	return lp
+}
+
+// localPathForEmbedded decodes a data URI and saves the image locally.
+// Returns "" if the URI is malformed or unsupported (logs a warning once).
+func (p *Plugin) localPathForEmbedded(src string) string {
+	if lp, seen := p.cache[src]; seen {
+		return lp
+	}
+
+	ext, data, err := decodeDataURI(src)
+	if err != nil {
+		slog.Warn("decoding embedded image", "err", err)
+		p.cache[src] = ""
+		return ""
+	}
+
+	h := sha3.NewShake128()
+	h.Write(data)
+	hashBytes := make([]byte, 16)
+	h.Read(hashBytes)
+	lp := "img/" + hex.EncodeToString(hashBytes) + ext
+
+	p.cache[src] = lp
 	p.results[lp] = data
 	return lp
 }

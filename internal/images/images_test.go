@@ -74,12 +74,11 @@ func TestPlugin_FailedDownloadKeepsOriginal(t *testing.T) {
 }
 
 func TestPlugin_NonHTTPURLUntouched(t *testing.T) {
-	html := `<img src="./local.png" alt="local"><img src="data:image/png;base64,abc" alt="data">`
+	html := `<img src="./local.png" alt="local">`
 
 	gotMD, imgs := runPlugin(t, html)
 
 	assert.Contains(t, gotMD, "./local.png")
-	assert.Contains(t, gotMD, "data:image/png;base64,abc")
 	assert.Empty(t, imgs)
 }
 
@@ -132,5 +131,51 @@ func TestPlugin_NoImages(t *testing.T) {
 
 	_, imgs := runPlugin(t, html)
 
+	assert.Empty(t, imgs)
+}
+
+func TestPlugin_DataURIExtracted(t *testing.T) {
+	// A small valid 1x1 PNG encoded as a data URI.
+	const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	html := fmt.Sprintf(`<p>Before</p><img src="data:image/png;base64,%s" alt="tiny"><p>After</p>`, pngB64)
+
+	gotMD, imgs := runPlugin(t, html)
+
+	// The markdown must reference a local path, not the original data URI.
+	assert.Contains(t, gotMD, "![tiny](img/")
+	assert.Contains(t, gotMD, ".png)")
+	assert.NotContains(t, gotMD, "data:image/png")
+
+	require.Len(t, imgs, 1)
+	for k := range imgs {
+		assert.Contains(t, k, "img/")
+		assert.Contains(t, k, ".png")
+	}
+}
+
+func TestPlugin_DataURIDuplicateExtractedOnce(t *testing.T) {
+	const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	dataURI := fmt.Sprintf("data:image/png;base64,%s", pngB64)
+	html := fmt.Sprintf(`<img src="%s" alt="a"><img src="%s" alt="b">`, dataURI, dataURI)
+
+	gotMD, imgs := runPlugin(t, html)
+
+	require.Len(t, imgs, 1)
+	var localRef string
+	for k := range imgs {
+		localRef = k
+	}
+	assert.Contains(t, gotMD, fmt.Sprintf("![a](%s)", localRef))
+	assert.Contains(t, gotMD, fmt.Sprintf("![b](%s)", localRef))
+}
+
+func TestPlugin_DataURIInvalidFallsBack(t *testing.T) {
+	// Malformed data URI — no comma separator.
+	html := `<img src="data:image/png;base64" alt="bad">`
+
+	gotMD, imgs := runPlugin(t, html)
+
+	// Falls back to default rendering; the broken URI appears in the output.
+	assert.Contains(t, gotMD, "data:image/png;base64")
 	assert.Empty(t, imgs)
 }

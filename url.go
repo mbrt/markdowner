@@ -18,15 +18,19 @@ var urlCmd = &cobra.Command{
 	RunE:  runURL,
 }
 
-var urlOutDir string
+var (
+	urlOutDir  string
+	urlTimeout time.Duration
+)
 
 func init() {
 	urlCmd.Flags().StringVar(&urlOutDir, "out-dir", ".", "output directory")
+	urlCmd.Flags().DurationVar(&urlTimeout, "timeout", 2*time.Minute, "per-URL timeout")
 }
 
 func runURL(_ *cobra.Command, args []string) error {
 	for _, pageURL := range args {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), urlTimeout)
 		defer cancel()
 
 		doc, err := fetch.URL(ctx, pageURL, downloadImages)

@@ -4,6 +4,7 @@ package images
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -87,4 +88,48 @@ func extFromContentType(ct string) string {
 	default:
 		return ""
 	}
+}
+
+// decodeDataURI parses a data URI of the form "data:<mediatype>;base64,<data>"
+// and returns the file extension (e.g. ".png") and the decoded bytes.
+func decodeDataURI(src string) (string, []byte, error) {
+	src, ok := strings.CutPrefix(src, "data:")
+	if !ok {
+		return "", nil, fmt.Errorf("not a data URI")
+	}
+	// Split on the first comma to separate the header from the payload.
+	header, payload, ok := strings.Cut(src, ",")
+	if !ok {
+		return "", nil, fmt.Errorf("malformed data URI: missing comma")
+	}
+	// Header must end with ";base64".
+	mediaType, ok := strings.CutSuffix(header, ";base64")
+	if !ok {
+		return "", nil, fmt.Errorf("unsupported data URI encoding (expected base64)")
+	}
+	// Strip any MIME line-folding whitespace (newlines, spaces) from the payload
+	// before decoding. HTML parsers may normalize line breaks to spaces, and
+	// many base64 encoders insert a newline every 76 characters.
+	// Additionally, some HTML parsers percent-encode newlines as %0A; decode
+	// those first, then strip whitespace.
+	decoded, err := url.PathUnescape(payload)
+	if err == nil {
+		payload = decoded
+	}
+	payload = strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			return -1
+		}
+		return r
+	}, payload)
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		// Try unpadded variant (some encoders omit trailing '=').
+		data, err = base64.RawStdEncoding.DecodeString(payload)
+		if err != nil {
+			return "", nil, fmt.Errorf("decoding base64 data URI: %w", err)
+		}
+	}
+	ext := extFromContentType(mediaType)
+	return ext, data, nil
 }
