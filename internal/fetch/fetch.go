@@ -37,17 +37,12 @@ func URL(ctx context.Context, pageURL string) (output.Doc, error) {
 		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
 	}
 
-	title := contents.Title
-	if title == "" {
-		title = pageURL
-	}
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
-			Title: title,
+			Title: contents.Title,
 			URL:   pageURL,
 			Date:  time.Now().UTC(),
 		},
 		Markdown: contents.Markdown,
-		Filename: output.Slugify(title),
 	}, nil
 }

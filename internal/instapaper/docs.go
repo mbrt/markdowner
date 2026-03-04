@@ -3,7 +3,6 @@ package instapaper
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/mbrt/markdowner/internal/convert"
@@ -112,6 +111,5 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark) (output.Doc,
 			Tags:  tags,
 		},
 		Markdown: body,
-		Filename: strconv.Itoa(b.ID) + "-" + output.Slugify(title),
 	}, nil
 }

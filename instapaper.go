@@ -56,11 +56,12 @@ func runInstapaper(*cobra.Command, []string) error {
 
 	written := 0
 	for _, doc := range docs {
-		if err := output.WriteFile(instapaperOutDir, doc); err != nil {
-			slog.Warn("writing article", "filename", doc.Filename, "err", err)
+		path, err := output.WriteFile(instapaperOutDir, doc)
+		if err != nil {
+			slog.Warn("writing article", "title", doc.Frontmatter.Title, "err", err)
 			continue
 		}
-		slog.Info("written", "path", instapaperOutDir+"/"+doc.Filename+".md")
+		slog.Info("written", "path", path)
 		written++
 	}
 	slog.Info("done", "written", written, "out_dir", instapaperOutDir)

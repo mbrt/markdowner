@@ -12,9 +12,9 @@ import (
 )
 
 var urlCmd = &cobra.Command{
-	Use:   "url <URL>",
-	Short: "Fetch a single URL and convert it to Markdown",
-	Args:  cobra.ExactArgs(1),
+	Use:   "url <URL>...",
+	Short: "Fetch one or more URLs and convert them to Markdown",
+	Args:  cobra.MinimumNArgs(1),
 	RunE:  runURL,
 }
 
@@ -25,18 +25,19 @@ func init() {
 }
 
 func runURL(_ *cobra.Command, args []string) error {
-	pageURL := args[0]
+	for _, pageURL := range args {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	doc, err := fetch.URL(ctx, pageURL)
-	if err != nil {
-		return fmt.Errorf("fetching %q: %w", pageURL, err)
+		doc, err := fetch.URL(ctx, pageURL)
+		if err != nil {
+			return fmt.Errorf("fetching %q: %w", pageURL, err)
+		}
+		path, err := output.WriteFile(urlOutDir, doc)
+		if err != nil {
+			return err
+		}
+		slog.Info("written", "path", path)
 	}
-	if err := output.WriteFile(urlOutDir, doc); err != nil {
-		return err
-	}
-	slog.Info("written", "path", urlOutDir+"/"+doc.Filename+".md")
 	return nil
 }

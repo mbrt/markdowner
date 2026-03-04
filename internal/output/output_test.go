@@ -29,14 +29,14 @@ func TestSlugify(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, Slugify(tt.input))
+			assert.Equal(t, tt.want, slugify(tt.input))
 		})
 	}
 }
 
 func TestSlugify_NoTrailingDash(t *testing.T) {
 	s := strings.Repeat("a", 79) + "-extra"
-	got := Slugify(s)
+	got := slugify(s)
 	assert.False(t, strings.HasSuffix(got, "-"), "result should not have trailing dash: %q", got)
 }
 
@@ -53,9 +53,9 @@ func TestWriteFile(t *testing.T) {
 	doc := Doc{
 		Frontmatter: fm,
 		Markdown:    body,
-		Filename:    "test-article",
 	}
-	require.NoError(t, WriteFile(dir, doc))
+	_, err := WriteFile(dir, doc)
+	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "test-article.md"))
 	require.NoError(t, err)
@@ -76,7 +76,8 @@ func TestWriteFile_NoTags(t *testing.T) {
 		Date:  time.Now(),
 	}
 
-	require.NoError(t, WriteFile(dir, Doc{Frontmatter: fm, Filename: "no-tags", Markdown: "body"}))
+	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
+	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
 	require.NoError(t, err)
@@ -88,7 +89,17 @@ func TestWriteFile_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Date: time.Now()}
 
-	require.NoError(t, WriteFile(dir, Doc{Frontmatter: fm, Filename: "x"}))
-	_, err := os.Stat(filepath.Join(dir, "x.md"))
+	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: ""})
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(dir, "x.md"))
 	assert.NoError(t, err)
+}
+
+func TestWriteFile_EmptyTitleFallsBackToURL(t *testing.T) {
+	dir := t.TempDir()
+	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Date: time.Now()}
+
+	path, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "example-com-some-page.md"), path)
 }
