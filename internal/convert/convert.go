@@ -18,6 +18,7 @@ import (
 // Contents holds the extracted and converted content of a webpage.
 type Contents struct {
 	Title    string
+	Author   string
 	Excerpt  string
 	Markdown string
 	// Images maps relative local paths ("img/<sha>.<ext>") to raw image bytes.
@@ -64,6 +65,7 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (C
 
 	return Contents{
 		Title:    article.Title,
+		Author:   article.Byline,
 		Excerpt:  article.Excerpt,
 		Markdown: mdc,
 		Images:   imgs,

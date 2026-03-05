@@ -18,13 +18,10 @@ var instapaperCmd = &cobra.Command{
 	RunE:  runInstapaper,
 }
 
-var (
-	instapaperOutDir string
-	instapaperSince  string
-)
+var instapaperSince string
 
 func init() {
-	instapaperCmd.Flags().StringVar(&instapaperOutDir, "out-dir", ".", "output directory")
+	rootCmd.AddCommand(instapaperCmd)
 	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "", "only fetch articles added after this date (RFC3339 or YYYY-MM-DD)")
 }
 
@@ -56,7 +53,7 @@ func runInstapaper(*cobra.Command, []string) error {
 
 	written := 0
 	for _, doc := range docs {
-		path, err := output.WriteFile(instapaperOutDir, doc)
+		path, err := output.WriteFile(outDir, doc)
 		if err != nil {
 			slog.Warn("writing article", "title", doc.Frontmatter.Title, "err", err)
 			continue
@@ -64,7 +61,7 @@ func runInstapaper(*cobra.Command, []string) error {
 		slog.Info("written", "path", path)
 		written++
 	}
-	slog.Info("done", "written", written, "out_dir", instapaperOutDir)
+	slog.Info("done", "written", written, "out_dir", outDir)
 	return nil
 }
 

@@ -18,13 +18,10 @@ var urlCmd = &cobra.Command{
 	RunE:  runURL,
 }
 
-var (
-	urlOutDir  string
-	urlTimeout time.Duration
-)
+var urlTimeout time.Duration
 
 func init() {
-	urlCmd.Flags().StringVar(&urlOutDir, "out-dir", ".", "output directory")
+	rootCmd.AddCommand(urlCmd)
 	urlCmd.Flags().DurationVar(&urlTimeout, "timeout", 2*time.Minute, "per-URL timeout")
 }
 
@@ -37,7 +34,7 @@ func runURL(_ *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("fetching %q: %w", pageURL, err)
 		}
-		path, err := output.WriteFile(urlOutDir, doc)
+		path, err := output.WriteFile(outDir, doc)
 		if err != nil {
 			return err
 		}

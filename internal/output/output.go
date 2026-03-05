@@ -16,10 +16,11 @@ import (
 
 // Frontmatter holds the metadata written at the top of each Markdown file.
 type Frontmatter struct {
-	Title string    `yaml:"title"`
-	URL   string    `yaml:"url"`
-	Date  time.Time `yaml:"date"`
-	Tags  []string  `yaml:"tags,omitempty"`
+	Title  string    `yaml:"title"`
+	Author string    `yaml:"author,omitempty"`
+	URL    string    `yaml:"url"`
+	Date   time.Time `yaml:"date"`
+	Tags   []string  `yaml:"tags,omitempty"`
 }
 
 // Doc holds the complete content of a fetched page, ready to write to disk.

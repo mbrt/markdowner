@@ -105,10 +105,11 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImag
 
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
-			Title: title,
-			URL:   b.URL,
-			Date:  time.Unix(int64(b.Time), 0).UTC(),
-			Tags:  tags,
+			Title:  title,
+			Author: contents.Author,
+			URL:    b.URL,
+			Date:   time.Unix(int64(b.Time), 0).UTC(),
+			Tags:   tags,
 		},
 		Markdown: body,
 		Images:   contents.Images,
