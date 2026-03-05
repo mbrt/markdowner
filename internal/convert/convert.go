@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 	nurl "net/url"
+	"time"
 
-	md "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
@@ -19,6 +19,7 @@ import (
 type Contents struct {
 	Title    string
 	Author   string
+	Date     *time.Time
 	Excerpt  string
 	Markdown string
 	// Images maps relative local paths ("img/<sha>.<ext>") to raw image bytes.
@@ -40,32 +41,34 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (C
 		return Contents{}, fmt.Errorf("extracting article: %w", err)
 	}
 
-	var mdc string
-	var imgs map[string][]byte
+	var (
+		mdc  string
+		imgs map[string][]byte
+	)
+	plugins := []converter.Plugin{
+		base.NewBasePlugin(),
+		commonmark.NewCommonmarkPlugin(),
+	}
 	if downloadImages {
 		imgs = map[string][]byte{}
-		imgPlugin := images.NewPlugin(ctx, imgs)
-		conv := converter.NewConverter(
-			converter.WithPlugins(
-				base.NewBasePlugin(),
-				commonmark.NewCommonmarkPlugin(),
-				imgPlugin,
-			),
-		)
-		mdc, err = conv.ConvertString(article.Content, converter.WithContext(ctx))
-		if err != nil {
-			return Contents{}, fmt.Errorf("converting to markdown: %w", err)
-		}
-	} else {
-		mdc, err = md.ConvertString(article.Content)
-		if err != nil {
-			return Contents{}, fmt.Errorf("converting to markdown: %w", err)
-		}
+		plugins = append(plugins, images.NewPlugin(ctx, imgs))
+	}
+
+	conv := converter.NewConverter(converter.WithPlugins(plugins...))
+	mdc, err = conv.ConvertString(article.Content, converter.WithContext(ctx))
+	if err != nil {
+		return Contents{}, fmt.Errorf("converting to markdown: %w", err)
+	}
+
+	date := article.ModifiedTime
+	if date == nil || date.IsZero() {
+		date = article.PublishedTime
 	}
 
 	return Contents{
 		Title:    article.Title,
 		Author:   article.Byline,
+		Date:     date,
 		Excerpt:  article.Excerpt,
 		Markdown: mdc,
 		Images:   imgs,

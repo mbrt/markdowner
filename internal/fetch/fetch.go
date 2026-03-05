@@ -42,12 +42,17 @@ func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, 
 		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
 	}
 
+	date := time.Now().UTC()
+	if contents.Date != nil {
+		date = *contents.Date
+	}
+
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
 			Title:  contents.Title,
 			Author: contents.Author,
 			URL:    pageURL,
-			Date:   time.Now().UTC(),
+			Date:   date,
 		},
 		Markdown: contents.Markdown,
 		Images:   contents.Images,
