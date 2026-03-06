@@ -14,6 +14,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Mode controls how the output directory is structured.
+type Mode string
+
+const (
+	// ModeFlat writes all files directly into the output directory (default).
+	ModeFlat Mode = "flat"
+	// ModeWeek organizes files into YYYY/wWW subdirectories based on saved time.
+	ModeWeek Mode = "week"
+)
+
 // Frontmatter holds the metadata written at the top of each Markdown file.
 type Frontmatter struct {
 	Title  string     `yaml:"title"`
@@ -29,14 +39,39 @@ type Doc struct {
 	Frontmatter Frontmatter
 	Markdown    string
 	// Images maps relative local paths ("img/<sha>.<ext>") to raw image bytes.
-	// When non-empty, WriteFile writes each image blob to <outDir>/<key>.
+	// When non-empty, WriteDoc writes each image blob to <outDir>/<key>.
 	Images map[string][]byte
 }
 
-// WriteFile writes a Markdown file with YAML frontmatter to outDir, and writes
-// any image blobs in doc.Images to their corresponding relative paths under
-// outDir. It returns the path of the written Markdown file.
-func WriteFile(outDir string, doc Doc) (string, error) {
+// Writer writes Docs to the filesystem according to its configuration.
+type Writer struct {
+	outDir string
+	mode   Mode
+}
+
+// NewWriter creates a Writer that writes to outDir using the given mode.
+func NewWriter(outDir string, mode Mode) Writer {
+	return Writer{outDir: outDir, mode: mode}
+}
+
+// WriteDoc writes a Markdown file with YAML frontmatter, and any image blobs,
+// to the appropriate subdirectory under the configured output directory.
+// It returns the path of the written Markdown file.
+func (w Writer) WriteDoc(doc Doc) (string, error) {
+	dir := w.outDir
+	if w.mode == ModeWeek {
+		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
+	}
+	return writeFile(dir, doc)
+}
+
+// weekSubDir returns baseDir/YYYY/wWW for the ISO week containing t.
+func weekSubDir(baseDir string, t time.Time) string {
+	year, week := t.ISOWeek()
+	return filepath.Join(baseDir, fmt.Sprintf("%04d", year), fmt.Sprintf("w%02d", week))
+}
+
+func writeFile(outDir string, doc Doc) (string, error) {
 	filename := slugify(targetName(doc))
 	fm := doc.Frontmatter
 	body := doc.Markdown

@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mbrt/markdowner/internal/fetch"
-	"github.com/mbrt/markdowner/internal/output"
 	"github.com/spf13/cobra"
+
+	"github.com/mbrt/markdowner/internal/fetch"
 )
 
 var urlCmd = &cobra.Command{
@@ -34,7 +34,7 @@ func runURL(_ *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("fetching %q: %w", pageURL, err)
 		}
-		path, err := output.WriteFile(outDir, doc)
+		path, err := writer.WriteDoc(doc)
 		if err != nil {
 			return err
 		}

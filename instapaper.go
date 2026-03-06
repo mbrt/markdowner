@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/mbrt/markdowner/internal/instapaper"
-	"github.com/mbrt/markdowner/internal/output"
 	"github.com/spf13/cobra"
+
+	"github.com/mbrt/markdowner/internal/instapaper"
 )
 
 var instapaperCmd = &cobra.Command{
@@ -53,7 +53,7 @@ func runInstapaper(*cobra.Command, []string) error {
 
 	written := 0
 	for _, doc := range docs {
-		path, err := output.WriteFile(outDir, doc)
+		path, err := writer.WriteDoc(doc)
 		if err != nil {
 			slog.Warn("writing article", "title", doc.Frontmatter.Title, "err", err)
 			continue

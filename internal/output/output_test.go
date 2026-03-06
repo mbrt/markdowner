@@ -40,7 +40,7 @@ func TestSlugify_NoTrailingDash(t *testing.T) {
 	assert.False(t, strings.HasSuffix(got, "-"), "result should not have trailing dash: %q", got)
 }
 
-func TestWriteFile(t *testing.T) {
+func TestWriteDoc(t *testing.T) {
 	dir := t.TempDir()
 	d := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
 	fm := Frontmatter{
@@ -56,7 +56,7 @@ func TestWriteFile(t *testing.T) {
 		Frontmatter: fm,
 		Markdown:    body,
 	}
-	_, err := WriteFile(dir, doc)
+	_, err := NewWriter(dir, ModeFlat).WriteDoc(doc)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "test-article.md"))
@@ -72,7 +72,7 @@ func TestWriteFile(t *testing.T) {
 	assert.Contains(t, s, "Hello world.")
 }
 
-func TestWriteFile_NoTags(t *testing.T) {
+func TestWriteDoc_NoTags(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{
 		Title: "No Tags",
@@ -80,7 +80,7 @@ func TestWriteFile_NoTags(t *testing.T) {
 		Saved: time.Now(),
 	}
 
-	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
+	_, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
@@ -89,18 +89,18 @@ func TestWriteFile_NoTags(t *testing.T) {
 	assert.NotContains(t, string(content), "date:")
 }
 
-func TestWriteFile_CreatesDirectory(t *testing.T) {
+func TestWriteDoc_CreatesDirectory(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Saved: time.Now()}
 
-	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: ""})
+	_, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: ""})
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(dir, "x.md"))
 	assert.NoError(t, err)
 }
 
-func TestWriteFile_WritesImages(t *testing.T) {
+func TestWriteDoc_WritesImages(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{Title: "Img Test", URL: "https://example.com/img", Saved: time.Now()}
 	doc := Doc{
@@ -111,7 +111,7 @@ func TestWriteFile_WritesImages(t *testing.T) {
 		},
 	}
 
-	_, err := WriteFile(dir, doc)
+	_, err := NewWriter(dir, ModeFlat).WriteDoc(doc)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(dir, "img", "abc123.png"))
@@ -119,11 +119,60 @@ func TestWriteFile_WritesImages(t *testing.T) {
 	assert.Equal(t, []byte("fakepng"), data)
 }
 
-func TestWriteFile_EmptyTitleFallsBackToURL(t *testing.T) {
+func TestWriteDoc_EmptyTitleFallsBackToURL(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Saved: time.Now()}
 
-	path, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
+	path, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "example-com-some-page.md"), path)
+}
+
+func TestWeekSubDir(t *testing.T) {
+	tests := []struct {
+		name    string
+		saved   time.Time
+		wantSub string
+	}{
+		{
+			name:    "mid year week",
+			saved:   time.Date(2024, 3, 18, 0, 0, 0, 0, time.UTC), // ISO week 12
+			wantSub: filepath.Join("2024", "w12"),
+		},
+		{
+			name:    "first week zero-padded",
+			saved:   time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC), // ISO week 2
+			wantSub: filepath.Join("2024", "w02"),
+		},
+		{
+			name:    "week 1 of year",
+			saved:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), // ISO week 1 of 2024
+			wantSub: filepath.Join("2024", "w01"),
+		},
+		{
+			name:    "late December in next ISO year",
+			saved:   time.Date(2020, 12, 31, 0, 0, 0, 0, time.UTC), // ISO week 53 of 2020
+			wantSub: filepath.Join("2020", "w53"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := weekSubDir("base", tt.saved)
+			assert.Equal(t, filepath.Join("base", tt.wantSub), got)
+		})
+	}
+}
+
+func TestWriteDoc_ModeWeek(t *testing.T) {
+	dir := t.TempDir()
+	saved := time.Date(2024, 3, 18, 0, 0, 0, 0, time.UTC) // ISO week 12
+	fm := Frontmatter{Title: "Week Test", URL: "https://example.com/w", Saved: saved}
+
+	path, err := NewWriter(dir, ModeWeek).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	require.NoError(t, err)
+
+	expected := filepath.Join(dir, "2024", "w12", "week-test.md")
+	assert.Equal(t, expected, path)
+	_, err = os.Stat(expected)
+	assert.NoError(t, err)
 }
