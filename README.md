@@ -26,6 +26,18 @@ markdowner url https://example.com/article --out-dir ./output
 
 Fetches the page, extracts the article content (via readability), converts it to Markdown, and writes `./output/<title-slug>.md`.
 
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--title` | (from page) | Override article title |
+| `--author` | (from page) | Override article author |
+| `--date` | (from page) | Override article date (`YYYY-MM-DD` or RFC3339) |
+| `--tags` | (none) | Add tags to the output (repeatable: `--tags foo --tags bar`) |
+| `--timeout` | `2m` | Per-URL timeout |
+
+`--title`, `--author`, and `--date` cannot be used when multiple URLs are given.
+
 ### Convert Instapaper articles
 
 ```sh
