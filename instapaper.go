@@ -15,7 +15,7 @@ import (
 var instapaperCmd = &cobra.Command{
 	Use:   "instapaper",
 	Short: "Fetch Instapaper articles and convert them to Markdown",
-	RunE:  runInstapaper,
+	Run:   runInstapaper,
 }
 
 var instapaperSince string
@@ -25,13 +25,13 @@ func init() {
 	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "", "only fetch articles added after this date (RFC3339 or YYYY-MM-DD)")
 }
 
-func runInstapaper(*cobra.Command, []string) error {
+func runInstapaper(cmd *cobra.Command, _ []string) {
 	var since time.Time
 	if instapaperSince != "" {
 		var err error
 		since, err = instapaper.ParseDate(instapaperSince)
 		if err != nil {
-			return fmt.Errorf("parsing --since: %w", err)
+			fatalUsage(cmd, fmt.Errorf("parsing --since: %w", err))
 		}
 	}
 
@@ -43,7 +43,7 @@ func runInstapaper(*cobra.Command, []string) error {
 	ctx := context.Background()
 	client := instapaper.NewClient(consumerKey, consumerSecret, username, password)
 	if err := client.Authenticate(ctx); err != nil {
-		return fmt.Errorf("authenticating with Instapaper: %w", err)
+		fatal(fmt.Errorf("authenticating with Instapaper: %w", err))
 	}
 
 	fetcher := instapaper.Fetcher{
@@ -54,9 +54,8 @@ func runInstapaper(*cobra.Command, []string) error {
 	written, failed := writer.WriteDocs(fetcher.FetchDocs(ctx, since))
 	slog.Info("done", "written", written, "out_dir", outDir)
 	if failed > 0 {
-		return fmt.Errorf("%d article(s) failed to fetch or write", failed)
+		fatal(fmt.Errorf("%d article(s) failed to fetch or write", failed))
 	}
-	return nil
 }
 
 func requireEnv(key string) string {

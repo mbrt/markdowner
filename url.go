@@ -15,7 +15,7 @@ var urlCmd = &cobra.Command{
 	Use:   "url <URL>...",
 	Short: "Fetch one or more URLs and convert them to Markdown",
 	Args:  cobra.MinimumNArgs(1),
-	RunE:  runURL,
+	Run:   runURL,
 }
 
 var (
@@ -39,25 +39,26 @@ func init() {
 	urlCmd.Flags().StringArrayVar(&urlTags, "tags", nil, "set tags on the output (repeatable)")
 }
 
-func runURL(_ *cobra.Command, args []string) error {
+func runURL(cmd *cobra.Command, args []string) {
 	if len(args) > 1 && (urlTitle != "" || urlAuthor != "" || urlDate != "") {
-		return fmt.Errorf("--title, --author, and --date cannot be used with multiple URLs")
+		fatalUsage(cmd, fmt.Errorf("--title, --author, and --date cannot be used with multiple URLs"))
 	}
 
-	var parsedDate *time.Time
+	var (
+		parsedDate  *time.Time
+		parsedSaved *time.Time
+	)
 	if urlDate != "" {
 		t, err := timeutil.ParseDate(urlDate)
 		if err != nil {
-			return fmt.Errorf("parsing --date: %w", err)
+			fatalUsage(cmd, fmt.Errorf("parsing --date: %w", err))
 		}
 		parsedDate = &t
 	}
-
-	var parsedSaved *time.Time
 	if urlSaved != "" {
 		t, err := timeutil.ParseDate(urlSaved)
 		if err != nil {
-			return fmt.Errorf("parsing --saved: %w", err)
+			fatalUsage(cmd, fmt.Errorf("parsing --saved: %w", err))
 		}
 		parsedSaved = &t
 	}
@@ -77,7 +78,6 @@ func runURL(_ *cobra.Command, args []string) error {
 	}
 	_, failed := writer.WriteDocs(fetcher.FetchURLs(context.Background(), args))
 	if failed > 0 {
-		return fmt.Errorf("%d article(s) failed to fetch or write", failed)
+		fatal(fmt.Errorf("%d article(s) failed to fetch or write", failed))
 	}
-	return nil
 }

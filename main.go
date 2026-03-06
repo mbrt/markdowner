@@ -43,9 +43,25 @@ func initWriter(*cobra.Command, []string) error {
 	return nil
 }
 
+// fatal logs a runtime error and exits. Use for errors that are not caused by
+// invalid flags or arguments (those should use fatalUsage instead).
+func fatal(err error) {
+	slog.Error("command failed", "err", err)
+	os.Exit(1)
+}
+
+// fatalUsage prints an error and the command usage, then exits. Use for errors
+// caused by invalid flags or arguments.
+func fatalUsage(cmd *cobra.Command, err error) {
+	fmt.Fprintln(os.Stderr, "Error:", err)
+	_ = cmd.Usage()
+	os.Exit(1)
+}
+
 func main() {
+	// cobra already prints the error and usage for flag/arg parse errors;
+	// we just need to exit.
 	if err := rootCmd.Execute(); err != nil {
-		slog.Error("command failed", "err", err)
 		os.Exit(1)
 	}
 }
