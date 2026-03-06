@@ -29,6 +29,7 @@ type Frontmatter struct {
 	Title  string     `yaml:"title"`
 	Author string     `yaml:"author,omitempty"`
 	URL    string     `yaml:"url"`
+	Source string     `yaml:"source,omitempty"`
 	Date   *time.Time `yaml:"date,omitempty"`
 	Saved  time.Time  `yaml:"saved"`
 	Tags   []string   `yaml:"tags,omitempty"`

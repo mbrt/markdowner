@@ -19,6 +19,7 @@ func TestApplyURLOverrides(t *testing.T) {
 		doc    output.Doc
 		title  string
 		author string
+		source string
 		date   *time.Time
 		tags   []string
 		want   output.Frontmatter
@@ -51,6 +52,12 @@ func TestApplyURLOverrides(t *testing.T) {
 			want:   output.Frontmatter{Title: "T", Author: "New Author"},
 		},
 		{
+			name:   "override source",
+			doc:    output.Doc{Frontmatter: output.Frontmatter{Title: "T"}},
+			source: "mysite",
+			want:   output.Frontmatter{Title: "T", Source: "mysite"},
+		},
+		{
 			name: "override date",
 			doc:  output.Doc{Frontmatter: output.Frontmatter{Title: "T", Date: &baseDate}},
 			date: &overrideDate,
@@ -67,9 +74,10 @@ func TestApplyURLOverrides(t *testing.T) {
 			doc:    output.Doc{Frontmatter: output.Frontmatter{Title: "Old", Author: "Old", Date: &baseDate, Tags: []string{"old"}}},
 			title:  "New Title",
 			author: "New Author",
+			source: "web",
 			date:   &overrideDate,
 			tags:   []string{"x", "y"},
-			want:   output.Frontmatter{Title: "New Title", Author: "New Author", Date: &overrideDate, Tags: []string{"x", "y"}},
+			want:   output.Frontmatter{Title: "New Title", Author: "New Author", Source: "web", Date: &overrideDate, Tags: []string{"x", "y"}},
 		},
 		{
 			name: "empty tags slice does not clear existing tags",
@@ -81,7 +89,7 @@ func TestApplyURLOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			applyURLOverrides(&tt.doc, tt.title, tt.author, tt.date, tt.tags)
+			applyURLOverrides(&tt.doc, tt.title, tt.author, tt.source, tt.date, tt.tags)
 			assert.Equal(t, tt.want, tt.doc.Frontmatter)
 		})
 	}

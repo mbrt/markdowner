@@ -33,6 +33,7 @@ Fetches the page, extracts the article content (via readability), converts it to
 | `--title` | (from page) | Override article title |
 | `--author` | (from page) | Override article author |
 | `--date` | (from page) | Override article date (`YYYY-MM-DD` or RFC3339) |
+| `--source` | (none) | Set the `source` field in the output frontmatter |
 | `--tags` | (none) | Add tags to the output (repeatable: `--tags foo --tags bar`) |
 | `--timeout` | `2m` | Per-URL timeout |
 
@@ -61,6 +62,7 @@ Each `.md` file contains YAML frontmatter followed by the article body:
 ---
 title: "Example Article"
 url: https://example.com/article
+source: instapaper
 date: 2024-03-01T12:00:00Z
 tags:
   - tech

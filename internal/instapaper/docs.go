@@ -105,6 +105,7 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImag
 			Title:  title,
 			Author: contents.Author,
 			URL:    b.URL,
+			Source: "instapaper",
 			Date:   contents.Date,
 			Saved:  date,
 			Tags:   tags,
