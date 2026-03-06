@@ -22,6 +22,7 @@ var (
 	outDir         string
 	outMode        string
 	downloadImages bool
+	parallel       int
 )
 
 var writer output.Writer
@@ -30,6 +31,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&outDir, "out-dir", ".", "output directory")
 	rootCmd.PersistentFlags().StringVar(&outMode, "out-mode", string(output.ModeFlat), `output organization mode ("flat" or "week")`)
 	rootCmd.PersistentFlags().BoolVar(&downloadImages, "download-images", false, "download external images and rewrite references to local paths")
+	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
 }
 
 func initWriter(*cobra.Command, []string) error {

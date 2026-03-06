@@ -8,36 +8,126 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/mbrt/markdowner/internal/convert"
 	"github.com/mbrt/markdowner/internal/output"
 )
 
-// Maximize compatibility with various sites by using a common desktop browser user agent.
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+const (
+	// Maximize compatibility with various sites by using a common desktop browser user agent.
+	userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+	defaultTimeout = 30 * time.Second
+)
+
+// Overrides holds optional frontmatter overrides applied to every fetched doc.
+type Overrides struct {
+	Title  string
+	Author string
+	Source string
+	Date   *time.Time
+	Tags   []string
+}
+
+// Fetcher fetches URLs in parallel and produces results on a channel.
+type Fetcher struct {
+	Parallel       int
+	Timeout        time.Duration
+	DownloadImages bool
+	Overrides      Overrides
+}
+
+// FetchURLs fetches the given URLs in parallel and returns a channel of
+// results. The channel is closed when all URLs have been processed.
+func (f Fetcher) FetchURLs(ctx context.Context, urls []string) <-chan output.Result {
+	f.setDefaults()
+
+	ch := make(chan output.Result)
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(f.Parallel)
+
+	go func() {
+		defer close(ch)
+		for _, pageURL := range urls {
+			g.Go(func() error {
+				fetchCtx, cancel := context.WithTimeout(ctx, f.Timeout)
+				defer cancel()
+
+				doc, err := URL(fetchCtx, pageURL, f.DownloadImages)
+				if err != nil {
+					ch <- output.Result{Err: fmt.Errorf("fetching %q: %w", pageURL, err)}
+					return nil
+				}
+				f.Overrides.apply(&doc)
+				ch <- output.Result{Doc: doc}
+				return nil
+			})
+		}
+		_ = g.Wait()
+	}()
+
+	return ch
+}
+
+func (f *Fetcher) setDefaults() {
+	if f.Parallel <= 0 {
+		f.Parallel = 1
+	}
+	if f.Timeout <= 0 {
+		f.Timeout = defaultTimeout
+	}
+}
+
+func (o Overrides) apply(doc *output.Doc) {
+	if o.Title != "" {
+		doc.Frontmatter.Title = o.Title
+	}
+	if o.Author != "" {
+		doc.Frontmatter.Author = o.Author
+	}
+	if o.Source != "" {
+		doc.Frontmatter.Source = o.Source
+	}
+	if o.Date != nil {
+		doc.Frontmatter.Date = o.Date
+	}
+	if len(o.Tags) > 0 {
+		doc.Frontmatter.Tags = o.Tags
+	}
+}
+
+// HTML fetches the raw HTML content of the page at pageURL.
+func HTML(ctx context.Context, pageURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
 
 // URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
 // When downloadImages is true, external images are downloaded and stored in
 // Doc.Images.
 func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
-	if err != nil {
-		return output.Doc{}, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return output.Doc{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return output.Doc{}, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(resp.Body)
+	html, err := HTML(ctx, pageURL)
 	if err != nil {
 		return output.Doc{}, err
 	}
 
-	contents, err := convert.FromHTML(ctx, pageURL, string(b), downloadImages)
+	contents, err := convert.FromHTML(ctx, pageURL, html, downloadImages)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
 	}

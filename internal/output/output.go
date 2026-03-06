@@ -3,6 +3,7 @@ package output
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -55,6 +56,12 @@ func NewWriter(outDir string, mode Mode) Writer {
 	return Writer{outDir: outDir, mode: mode}
 }
 
+// Result holds either a successfully converted doc or an error.
+type Result struct {
+	Doc Doc
+	Err error
+}
+
 // WriteDoc writes a Markdown file with YAML frontmatter, and any image blobs,
 // to the appropriate subdirectory under the configured output directory.
 // It returns the path of the written Markdown file.
@@ -64,6 +71,27 @@ func (w Writer) WriteDoc(doc Doc) (string, error) {
 		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
 	}
 	return writeFile(dir, doc)
+}
+
+// WriteDocs consumes results from a channel, writes each successful doc to
+// disk, and logs warnings for any errors. It returns the number of
+// successfully written docs.
+func (w Writer) WriteDocs(results <-chan Result) int {
+	written := 0
+	for res := range results {
+		if res.Err != nil {
+			slog.Warn("fetching article", "err", res.Err)
+			continue
+		}
+		path, err := w.WriteDoc(res.Doc)
+		if err != nil {
+			slog.Warn("writing article", "title", res.Doc.Frontmatter.Title, "err", err)
+			continue
+		}
+		slog.Info("written", "path", path)
+		written++
+	}
+	return written
 }
 
 // weekSubDir returns baseDir/YYYY/wWW for the ISO week containing t.

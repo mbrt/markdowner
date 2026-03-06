@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mbrt/markdowner/internal/fetch"
-	"github.com/mbrt/markdowner/internal/output"
 	"github.com/mbrt/markdowner/internal/timeutil"
 )
 
@@ -53,39 +51,18 @@ func runURL(_ *cobra.Command, args []string) error {
 		parsedDate = &t
 	}
 
-	for _, pageURL := range args {
-		ctx, cancel := context.WithTimeout(context.Background(), urlTimeout)
-		defer cancel()
-
-		doc, err := fetch.URL(ctx, pageURL, downloadImages)
-		if err != nil {
-			return fmt.Errorf("fetching %q: %w", pageURL, err)
-		}
-		applyURLOverrides(&doc, urlTitle, urlAuthor, urlSource, parsedDate, urlTags)
-		path, err := writer.WriteDoc(doc)
-		if err != nil {
-			return err
-		}
-		slog.Info("written", "path", path)
+	fetcher := fetch.Fetcher{
+		Parallel:       parallel,
+		Timeout:        urlTimeout,
+		DownloadImages: downloadImages,
+		Overrides: fetch.Overrides{
+			Title:  urlTitle,
+			Author: urlAuthor,
+			Source: urlSource,
+			Date:   parsedDate,
+			Tags:   urlTags,
+		},
 	}
+	writer.WriteDocs(fetcher.FetchURLs(context.Background(), args))
 	return nil
-}
-
-// applyURLOverrides applies non-zero flag values over the fetched frontmatter.
-func applyURLOverrides(doc *output.Doc, title, author, source string, date *time.Time, tags []string) {
-	if title != "" {
-		doc.Frontmatter.Title = title
-	}
-	if author != "" {
-		doc.Frontmatter.Author = author
-	}
-	if source != "" {
-		doc.Frontmatter.Source = source
-	}
-	if date != nil {
-		doc.Frontmatter.Date = date
-	}
-	if len(tags) > 0 {
-		doc.Frontmatter.Tags = tags
-	}
 }

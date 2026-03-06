@@ -46,21 +46,12 @@ func runInstapaper(*cobra.Command, []string) error {
 		return fmt.Errorf("authenticating with Instapaper: %w", err)
 	}
 
-	docs, errs := instapaper.FetchDocs(ctx, client, since, downloadImages)
-	for _, err := range errs {
-		slog.Warn("fetching article", "err", err)
+	fetcher := instapaper.Fetcher{
+		Client:         client,
+		Parallel:       parallel,
+		DownloadImages: downloadImages,
 	}
-
-	written := 0
-	for _, doc := range docs {
-		path, err := writer.WriteDoc(doc)
-		if err != nil {
-			slog.Warn("writing article", "title", doc.Frontmatter.Title, "err", err)
-			continue
-		}
-		slog.Info("written", "path", path)
-		written++
-	}
+	written := writer.WriteDocs(fetcher.FetchDocs(ctx, since))
 	slog.Info("done", "written", written, "out_dir", outDir)
 	return nil
 }
