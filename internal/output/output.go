@@ -75,23 +75,24 @@ func (w Writer) WriteDoc(doc Doc) (string, error) {
 
 // WriteDocs consumes results from a channel, writes each successful doc to
 // disk, and logs warnings for any errors. It returns the number of
-// successfully written docs.
-func (w Writer) WriteDocs(results <-chan Result) int {
-	written := 0
+// successfully written docs and the number of failures.
+func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 	for res := range results {
 		if res.Err != nil {
 			slog.Warn("fetching article", "err", res.Err)
+			failed++
 			continue
 		}
 		path, err := w.WriteDoc(res.Doc)
 		if err != nil {
 			slog.Warn("writing article", "title", res.Doc.Frontmatter.Title, "err", err)
+			failed++
 			continue
 		}
 		slog.Info("written", "path", path)
 		written++
 	}
-	return written
+	return written, failed
 }
 
 // weekSubDir returns baseDir/YYYY/wWW for the ISO week containing t.

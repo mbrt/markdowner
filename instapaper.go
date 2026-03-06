@@ -51,8 +51,11 @@ func runInstapaper(*cobra.Command, []string) error {
 		Parallel:       parallel,
 		DownloadImages: downloadImages,
 	}
-	written := writer.WriteDocs(fetcher.FetchDocs(ctx, since))
+	written, failed := writer.WriteDocs(fetcher.FetchDocs(ctx, since))
 	slog.Info("done", "written", written, "out_dir", outDir)
+	if failed > 0 {
+		return fmt.Errorf("%d article(s) failed to fetch or write", failed)
+	}
 	return nil
 }
 

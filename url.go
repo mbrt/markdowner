@@ -75,6 +75,9 @@ func runURL(_ *cobra.Command, args []string) error {
 			Tags:   urlTags,
 		},
 	}
-	writer.WriteDocs(fetcher.FetchURLs(context.Background(), args))
+	_, failed := writer.WriteDocs(fetcher.FetchURLs(context.Background(), args))
+	if failed > 0 {
+		return fmt.Errorf("%d article(s) failed to fetch or write", failed)
+	}
 	return nil
 }
