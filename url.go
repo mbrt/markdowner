@@ -23,6 +23,7 @@ var (
 	urlTitle   string
 	urlAuthor  string
 	urlDate    string
+	urlSaved   string
 	urlSource  string
 	urlTags    []string
 )
@@ -33,6 +34,7 @@ func init() {
 	urlCmd.Flags().StringVar(&urlTitle, "title", "", "override article title (single URL only)")
 	urlCmd.Flags().StringVar(&urlAuthor, "author", "", "override article author (single URL only)")
 	urlCmd.Flags().StringVar(&urlDate, "date", "", "override article date in RFC3339 or YYYY-MM-DD (single URL only)")
+	urlCmd.Flags().StringVar(&urlSaved, "saved", "", "override saved date in RFC3339 or YYYY-MM-DD")
 	urlCmd.Flags().StringVar(&urlSource, "source", "", "set the source field in the output frontmatter")
 	urlCmd.Flags().StringArrayVar(&urlTags, "tags", nil, "set tags on the output (repeatable)")
 }
@@ -51,6 +53,15 @@ func runURL(_ *cobra.Command, args []string) error {
 		parsedDate = &t
 	}
 
+	var parsedSaved *time.Time
+	if urlSaved != "" {
+		t, err := timeutil.ParseDate(urlSaved)
+		if err != nil {
+			return fmt.Errorf("parsing --saved: %w", err)
+		}
+		parsedSaved = &t
+	}
+
 	fetcher := fetch.Fetcher{
 		Parallel:       parallel,
 		Timeout:        urlTimeout,
@@ -60,6 +71,7 @@ func runURL(_ *cobra.Command, args []string) error {
 			Author: urlAuthor,
 			Source: urlSource,
 			Date:   parsedDate,
+			Saved:  parsedSaved,
 			Tags:   urlTags,
 		},
 	}

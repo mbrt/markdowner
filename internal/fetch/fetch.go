@@ -26,6 +26,7 @@ type Overrides struct {
 	Author string
 	Source string
 	Date   *time.Time
+	Saved  *time.Time
 	Tags   []string
 }
 
@@ -90,6 +91,9 @@ func (o Overrides) apply(doc *output.Doc) {
 	}
 	if o.Date != nil {
 		doc.Frontmatter.Date = o.Date
+	}
+	if o.Saved != nil {
+		doc.Frontmatter.Saved = *o.Saved
 	}
 	if len(o.Tags) > 0 {
 		doc.Frontmatter.Tags = o.Tags
