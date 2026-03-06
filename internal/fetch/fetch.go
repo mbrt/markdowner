@@ -18,7 +18,11 @@ const (
 	// Maximize compatibility with various sites by using a common desktop browser user agent.
 	userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 	defaultTimeout = 30 * time.Second
+	retryAttempts  = 3
 )
+
+// retryBackoff is the delay between retry attempts. It is a variable so tests can override it.
+var retryBackoff = time.Second
 
 // Overrides holds optional frontmatter overrides applied to every fetched doc.
 type Overrides struct {
@@ -101,7 +105,27 @@ func (o Overrides) apply(doc *output.Doc) {
 }
 
 // HTML fetches the raw HTML content of the page at pageURL.
+// It retries up to retryAttempts times with a retryBackoff delay between attempts.
 func HTML(ctx context.Context, pageURL string) (string, error) {
+	var lastErr error
+	for i := range retryAttempts {
+		html, err := htmlOnce(ctx, pageURL)
+		if err == nil {
+			return html, nil
+		}
+		lastErr = err
+		if i < retryAttempts-1 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(retryBackoff):
+			}
+		}
+	}
+	return "", lastErr
+}
+
+func htmlOnce(ctx context.Context, pageURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return "", err

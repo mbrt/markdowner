@@ -15,6 +15,13 @@ import (
 	"github.com/mbrt/markdowner/internal/output"
 )
 
+func TestMain(m *testing.M) {
+	// Speed up tests by disabling the retry backoff globally.
+	// Tests that specifically test backoff behaviour override this locally.
+	retryBackoff = 0
+	m.Run()
+}
+
 func TestOverridesApply(t *testing.T) {
 	baseDate := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	overrideDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -219,6 +226,60 @@ func TestFetchURLs_ContextCancellation(t *testing.T) {
 	results := collectResults(f.FetchURLs(ctx, []string{srv.URL + "/ok"}))
 	require.Len(t, results, 1)
 	assert.Error(t, results[0].Err)
+}
+
+func TestHTML_RetriesOnError(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts < retryAttempts {
+			http.Error(w, "transient", http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprint(w, testHTML)
+	}))
+	t.Cleanup(srv.Close)
+
+	html, err := HTML(context.Background(), srv.URL+"/")
+	require.NoError(t, err)
+	assert.Contains(t, html, "Test Page")
+	assert.Equal(t, retryAttempts, attempts)
+}
+
+func TestHTML_ExhaustsRetries(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		http.Error(w, "always broken", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := HTML(context.Background(), srv.URL+"/")
+	assert.ErrorContains(t, err, "HTTP 500")
+	assert.Equal(t, retryAttempts, attempts)
+}
+
+func TestHTML_ContextCancelledDuringBackoff(t *testing.T) {
+	// Use a real backoff so the context can be cancelled during the wait.
+	retryBackoff = time.Hour
+	t.Cleanup(func() { retryBackoff = 0 })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "broken", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	// Cancel after a short delay so the first attempt completes and we're in backoff.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := HTML(ctx, srv.URL+"/")
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestFetchURLs_EmptyURLs(t *testing.T) {
