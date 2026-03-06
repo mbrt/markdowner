@@ -16,11 +16,12 @@ import (
 
 // Frontmatter holds the metadata written at the top of each Markdown file.
 type Frontmatter struct {
-	Title  string    `yaml:"title"`
-	Author string    `yaml:"author,omitempty"`
-	URL    string    `yaml:"url"`
-	Date   time.Time `yaml:"date"`
-	Tags   []string  `yaml:"tags,omitempty"`
+	Title  string     `yaml:"title"`
+	Author string     `yaml:"author,omitempty"`
+	URL    string     `yaml:"url"`
+	Date   *time.Time `yaml:"date,omitempty"`
+	Saved  time.Time  `yaml:"saved"`
+	Tags   []string   `yaml:"tags,omitempty"`
 }
 
 // Doc holds the complete content of a fetched page, ready to write to disk.
@@ -42,7 +43,11 @@ func WriteFile(outDir string, doc Doc) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating output directory: %w", err)
 	}
-	fm.Date = fm.Date.Truncate(time.Second)
+	fm.Saved = fm.Saved.Truncate(time.Second)
+	if fm.Date != nil {
+		t := fm.Date.Truncate(time.Second)
+		fm.Date = &t
+	}
 	fmBytes, err := yaml.Marshal(fm)
 	if err != nil {
 		return "", fmt.Errorf("marshaling frontmatter: %w", err)

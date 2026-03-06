@@ -42,10 +42,12 @@ func TestSlugify_NoTrailingDash(t *testing.T) {
 
 func TestWriteFile(t *testing.T) {
 	dir := t.TempDir()
+	d := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
 	fm := Frontmatter{
 		Title: "Test Article",
 		URL:   "https://example.com/test",
-		Date:  time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC),
+		Date:  &d,
+		Saved: time.Date(2024, 4, 1, 8, 0, 0, 0, time.UTC),
 		Tags:  []string{"go", "testing"},
 	}
 	body := "# Test\n\nHello world."
@@ -63,6 +65,7 @@ func TestWriteFile(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(s, "---\n"), "file should start with YAML frontmatter delimiter")
 	assert.Contains(t, s, "date: 2024-03-01T12:00:00Z")
+	assert.Contains(t, s, "saved: 2024-04-01T08:00:00Z")
 	assert.Contains(t, s, "title: Test Article")
 	assert.Contains(t, s, "url: https://example.com/test")
 	assert.Contains(t, s, "- go")
@@ -74,7 +77,7 @@ func TestWriteFile_NoTags(t *testing.T) {
 	fm := Frontmatter{
 		Title: "No Tags",
 		URL:   "https://example.com/notags",
-		Date:  time.Now(),
+		Saved: time.Now(),
 	}
 
 	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
@@ -83,12 +86,13 @@ func TestWriteFile_NoTags(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(content), "tags:")
+	assert.NotContains(t, string(content), "date:")
 }
 
 func TestWriteFile_CreatesDirectory(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "sub", "dir")
-	fm := Frontmatter{Title: "X", URL: "https://x.com", Date: time.Now()}
+	fm := Frontmatter{Title: "X", URL: "https://x.com", Saved: time.Now()}
 
 	_, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: ""})
 	require.NoError(t, err)
@@ -98,7 +102,7 @@ func TestWriteFile_CreatesDirectory(t *testing.T) {
 
 func TestWriteFile_WritesImages(t *testing.T) {
 	dir := t.TempDir()
-	fm := Frontmatter{Title: "Img Test", URL: "https://example.com/img", Date: time.Now()}
+	fm := Frontmatter{Title: "Img Test", URL: "https://example.com/img", Saved: time.Now()}
 	doc := Doc{
 		Frontmatter: fm,
 		Markdown:    "![pic](img/abc123.png)",
@@ -117,7 +121,7 @@ func TestWriteFile_WritesImages(t *testing.T) {
 
 func TestWriteFile_EmptyTitleFallsBackToURL(t *testing.T) {
 	dir := t.TempDir()
-	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Date: time.Now()}
+	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Saved: time.Now()}
 
 	path, err := WriteFile(dir, Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)

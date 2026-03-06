@@ -104,16 +104,14 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImag
 	}
 
 	date := time.Unix(int64(b.Time), 0).UTC()
-	if contents.Date != nil {
-		date = *contents.Date
-	}
 
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
 			Title:  title,
 			Author: contents.Author,
 			URL:    b.URL,
-			Date:   date,
+			Date:   contents.Date,
+			Saved:  date,
 			Tags:   tags,
 		},
 		Markdown: body,

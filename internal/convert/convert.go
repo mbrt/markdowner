@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	nurl "net/url"
+	"net/url"
 	"time"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
@@ -32,7 +32,7 @@ type Contents struct {
 // references in the Markdown are rewritten to local relative paths; the blobs
 // are returned in Contents.Images.
 func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (Contents, error) {
-	purl, err := nurl.Parse(pageURL)
+	purl, err := url.Parse(pageURL)
 	if err != nil {
 		return Contents{}, fmt.Errorf("parsing URL %q: %w", pageURL, err)
 	}
