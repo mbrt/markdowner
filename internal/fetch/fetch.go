@@ -19,10 +19,111 @@ const (
 	userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 	defaultTimeout = 30 * time.Second
 	retryAttempts  = 3
+	retryBackoff   = time.Second
 )
 
-// retryBackoff is the delay between retry attempts. It is a variable so tests can override it.
-var retryBackoff = time.Second
+// Client configures HTTP fetching behavior. The zero value is ready to use
+// with sensible defaults.
+type Client struct {
+	HTTPClient   *http.Client
+	RetryBackoff time.Duration
+}
+
+func (c Client) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return http.DefaultClient
+}
+
+func (c Client) backoff() time.Duration {
+	if c.RetryBackoff > 0 {
+		return c.RetryBackoff
+	}
+	return retryBackoff
+}
+
+// HTML fetches the raw HTML content of the page at pageURL.
+// It retries up to retryAttempts times with a backoff delay between attempts.
+func (c Client) HTML(ctx context.Context, pageURL string) (string, error) {
+	var lastErr error
+	for i := range retryAttempts {
+		html, err := c.htmlOnce(ctx, pageURL)
+		if err == nil {
+			return html, nil
+		}
+		lastErr = err
+		if i < retryAttempts-1 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(c.backoff()):
+			}
+		}
+	}
+	return "", lastErr
+}
+
+func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
+// When downloadImages is true, external images are downloaded and stored in
+// Doc.Images.
+func (c Client) URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
+	html, err := c.HTML(ctx, pageURL)
+	if err != nil {
+		return output.Doc{}, err
+	}
+
+	contents, err := convert.FromHTML(ctx, pageURL, html, downloadImages)
+	if err != nil {
+		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
+	}
+
+	return output.Doc{
+		Frontmatter: output.Frontmatter{
+			Title:  contents.Title,
+			Author: contents.Author,
+			URL:    pageURL,
+			Date:   contents.Date,
+			Saved:  time.Now().UTC(),
+		},
+		Markdown: contents.Markdown,
+		Images:   contents.Images,
+	}, nil
+}
+
+// HTML fetches the raw HTML content of the page at pageURL.
+// It retries up to retryAttempts times with a retryBackoff delay between attempts.
+func HTML(ctx context.Context, pageURL string) (string, error) {
+	return Client{}.HTML(ctx, pageURL)
+}
+
+// URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
+// When downloadImages is true, external images are downloaded and stored in
+// Doc.Images.
+func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
+	return Client{}.URL(ctx, pageURL, downloadImages)
+}
 
 // Overrides holds optional frontmatter overrides applied to every fetched doc.
 type Overrides struct {
@@ -36,6 +137,7 @@ type Overrides struct {
 
 // Fetcher fetches URLs in parallel and produces results on a channel.
 type Fetcher struct {
+	Client         Client
 	Parallel       int
 	Timeout        time.Duration
 	DownloadImages bool
@@ -58,7 +160,7 @@ func (f Fetcher) FetchURLs(ctx context.Context, urls []string) <-chan output.Res
 				fetchCtx, cancel := context.WithTimeout(ctx, f.Timeout)
 				defer cancel()
 
-				doc, err := URL(fetchCtx, pageURL, f.DownloadImages)
+				doc, err := f.Client.URL(fetchCtx, pageURL, f.DownloadImages)
 				if err != nil {
 					ch <- output.Result{Err: fmt.Errorf("fetching %q: %w", pageURL, err)}
 					return nil
@@ -102,73 +204,4 @@ func (o Overrides) apply(doc *output.Doc) {
 	if len(o.Tags) > 0 {
 		doc.Frontmatter.Tags = o.Tags
 	}
-}
-
-// HTML fetches the raw HTML content of the page at pageURL.
-// It retries up to retryAttempts times with a retryBackoff delay between attempts.
-func HTML(ctx context.Context, pageURL string) (string, error) {
-	var lastErr error
-	for i := range retryAttempts {
-		html, err := htmlOnce(ctx, pageURL)
-		if err == nil {
-			return html, nil
-		}
-		lastErr = err
-		if i < retryAttempts-1 {
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(retryBackoff):
-			}
-		}
-	}
-	return "", lastErr
-}
-
-func htmlOnce(ctx context.Context, pageURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-// URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
-// When downloadImages is true, external images are downloaded and stored in
-// Doc.Images.
-func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
-	html, err := HTML(ctx, pageURL)
-	if err != nil {
-		return output.Doc{}, err
-	}
-
-	contents, err := convert.FromHTML(ctx, pageURL, html, downloadImages)
-	if err != nil {
-		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
-	}
-
-	return output.Doc{
-		Frontmatter: output.Frontmatter{
-			Title:  contents.Title,
-			Author: contents.Author,
-			URL:    pageURL,
-			Date:   contents.Date,
-			Saved:  time.Now().UTC(),
-		},
-		Markdown: contents.Markdown,
-		Images:   contents.Images,
-	}, nil
 }

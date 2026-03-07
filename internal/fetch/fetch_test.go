@@ -3,10 +3,13 @@ package fetch
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -15,11 +18,11 @@ import (
 	"github.com/mbrt/markdowner/internal/output"
 )
 
-func TestMain(m *testing.M) {
-	// Speed up tests by disabling the retry backoff globally.
-	// Tests that specifically test backoff behaviour override this locally.
-	retryBackoff = 0
-	m.Run()
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestOverridesApply(t *testing.T) {
@@ -126,6 +129,10 @@ func testServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+func testClient() Client {
+	return Client{RetryBackoff: time.Nanosecond}
+}
+
 func collectResults(ch <-chan output.Result) []output.Result {
 	var results []output.Result
 	for r := range ch {
@@ -136,7 +143,7 @@ func collectResults(ch <-chan output.Result) []output.Result {
 
 func TestFetchURLs_SingleURL(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Timeout: 5 * time.Second}
 
 	results := collectResults(f.FetchURLs(context.Background(), []string{srv.URL + "/ok"}))
 	require.Len(t, results, 1)
@@ -147,7 +154,7 @@ func TestFetchURLs_SingleURL(t *testing.T) {
 
 func TestFetchURLs_MultipleURLs(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Parallel: 2, Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Parallel: 2, Timeout: 5 * time.Second}
 
 	urls := []string{srv.URL + "/ok", srv.URL + "/ok", srv.URL + "/ok"}
 	results := collectResults(f.FetchURLs(context.Background(), urls))
@@ -160,7 +167,7 @@ func TestFetchURLs_MultipleURLs(t *testing.T) {
 
 func TestFetchURLs_HTTPError(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Timeout: 5 * time.Second}
 
 	results := collectResults(f.FetchURLs(context.Background(), []string{srv.URL + "/error"}))
 	require.Len(t, results, 1)
@@ -169,7 +176,7 @@ func TestFetchURLs_HTTPError(t *testing.T) {
 
 func TestFetchURLs_MixedResults(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Parallel: 2, Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Parallel: 2, Timeout: 5 * time.Second}
 
 	urls := []string{srv.URL + "/ok", srv.URL + "/error"}
 	results := collectResults(f.FetchURLs(context.Background(), urls))
@@ -188,6 +195,7 @@ func TestFetchURLs_MixedResults(t *testing.T) {
 func TestFetchURLs_AppliesOverrides(t *testing.T) {
 	srv := testServer(t)
 	f := Fetcher{
+		Client:  testClient(),
 		Timeout: 5 * time.Second,
 		Overrides: Overrides{
 			Title:  "Custom Title",
@@ -207,6 +215,7 @@ func TestFetchURLs_AppliesOverrides(t *testing.T) {
 func TestFetchURLs_OverridesNotAppliedOnError(t *testing.T) {
 	srv := testServer(t)
 	f := Fetcher{
+		Client:    testClient(),
 		Timeout:   5 * time.Second,
 		Overrides: Overrides{Title: "Should Not Appear"},
 	}
@@ -222,7 +231,7 @@ func TestFetchURLs_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	f := Fetcher{Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Timeout: 5 * time.Second}
 	results := collectResults(f.FetchURLs(ctx, []string{srv.URL + "/ok"}))
 	require.Len(t, results, 1)
 	assert.Error(t, results[0].Err)
@@ -240,7 +249,8 @@ func TestHTML_RetriesOnError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	html, err := HTML(context.Background(), srv.URL+"/")
+	c := testClient()
+	html, err := c.HTML(context.Background(), srv.URL+"/")
 	require.NoError(t, err)
 	assert.Contains(t, html, "Test Page")
 	assert.Equal(t, retryAttempts, attempts)
@@ -254,32 +264,48 @@ func TestHTML_ExhaustsRetries(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := HTML(context.Background(), srv.URL+"/")
+	c := testClient()
+	_, err := c.HTML(context.Background(), srv.URL+"/")
 	assert.ErrorContains(t, err, "HTTP 500")
 	assert.Equal(t, retryAttempts, attempts)
 }
 
 func TestHTML_ContextCancelledDuringBackoff(t *testing.T) {
-	// Use a real backoff so the context can be cancelled during the wait.
-	retryBackoff = time.Hour
-	t.Cleanup(func() { retryBackoff = 0 })
+	synctest.Test(t, func(t *testing.T) {
+		attempts := 0
+		c := Client{
+			RetryBackoff: time.Second,
+			HTTPClient: &http.Client{
+				Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+					attempts++
+					return &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Body:       io.NopCloser(strings.NewReader("broken")),
+					}, nil
+				}),
+			},
+		}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "broken", http.StatusInternalServerError)
-	}))
-	t.Cleanup(srv.Close)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+		done := make(chan error, 1)
+		go func() {
+			_, err := c.HTML(ctx, "http://fake/test")
+			done <- err
+		}()
 
-	// Cancel after a short delay so the first attempt completes and we're in backoff.
-	go func() {
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the first attempt and backoff to start.
+		synctest.Wait()
+		assert.Equal(t, 1, attempts)
+
+		// Cancel during backoff.
 		cancel()
-	}()
+		synctest.Wait()
 
-	_, err := HTML(ctx, srv.URL+"/")
-	assert.ErrorIs(t, err, context.Canceled)
+		err := <-done
+		assert.ErrorIs(t, err, context.Canceled)
+	})
 }
 
 func TestFetchURLs_EmptyURLs(t *testing.T) {
@@ -291,7 +317,7 @@ func TestFetchURLs_EmptyURLs(t *testing.T) {
 func TestFetchURLs_DefaultParallel(t *testing.T) {
 	srv := testServer(t)
 	// Parallel=0 should default to 1, not panic.
-	f := Fetcher{Parallel: 0, Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Parallel: 0, Timeout: 5 * time.Second}
 	results := collectResults(f.FetchURLs(context.Background(), []string{srv.URL + "/ok"}))
 	require.Len(t, results, 1)
 	assert.NoError(t, results[0].Err)
