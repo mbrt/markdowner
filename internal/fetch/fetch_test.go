@@ -167,7 +167,7 @@ func TestFetchURLs_MultipleURLs(t *testing.T) {
 
 func TestFetchURLs_HTTPError(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Client: testClient(), Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Timeout: 100 * time.Millisecond}
 
 	results := collectResults(f.FetchURLs(context.Background(), []string{srv.URL + "/error"}))
 	require.Len(t, results, 1)
@@ -176,7 +176,7 @@ func TestFetchURLs_HTTPError(t *testing.T) {
 
 func TestFetchURLs_MixedResults(t *testing.T) {
 	srv := testServer(t)
-	f := Fetcher{Client: testClient(), Parallel: 2, Timeout: 5 * time.Second}
+	f := Fetcher{Client: testClient(), Parallel: 2, Timeout: 100 * time.Millisecond}
 
 	urls := []string{srv.URL + "/ok", srv.URL + "/error"}
 	results := collectResults(f.FetchURLs(context.Background(), urls))
@@ -216,7 +216,7 @@ func TestFetchURLs_OverridesNotAppliedOnError(t *testing.T) {
 	srv := testServer(t)
 	f := Fetcher{
 		Client:    testClient(),
-		Timeout:   5 * time.Second,
+		Timeout:   100 * time.Millisecond,
 		Overrides: Overrides{Title: "Should Not Appear"},
 	}
 
@@ -238,36 +238,62 @@ func TestFetchURLs_ContextCancellation(t *testing.T) {
 }
 
 func TestHTML_RetriesOnError(t *testing.T) {
-	attempts := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
-		if attempts < retryAttempts {
-			http.Error(w, "transient", http.StatusInternalServerError)
-			return
+	synctest.Test(t, func(t *testing.T) {
+		attempts := 0
+		c := Client{
+			RetryBackoff: time.Second,
+			HTTPClient: &http.Client{
+				Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+					attempts++
+					if attempts < 3 {
+						return &http.Response{
+							StatusCode: http.StatusInternalServerError,
+							Body:       io.NopCloser(strings.NewReader("transient")),
+						}, nil
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(testHTML)),
+					}, nil
+				}),
+			},
 		}
-		fmt.Fprint(w, testHTML)
-	}))
-	t.Cleanup(srv.Close)
 
-	c := testClient()
-	html, err := c.HTML(context.Background(), srv.URL+"/")
-	require.NoError(t, err)
-	assert.Contains(t, html, "Test Page")
-	assert.Equal(t, retryAttempts, attempts)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		html, err := c.HTML(ctx, "http://fake/test")
+		require.NoError(t, err)
+		assert.Contains(t, html, "Test Page")
+		assert.Equal(t, 3, attempts)
+	})
 }
 
-func TestHTML_ExhaustsRetries(t *testing.T) {
-	attempts := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
-		http.Error(w, "always broken", http.StatusInternalServerError)
-	}))
-	t.Cleanup(srv.Close)
+func TestHTML_RetriesUntilTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		attempts := 0
+		c := Client{
+			RetryBackoff: time.Second,
+			HTTPClient: &http.Client{
+				Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+					attempts++
+					return &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Body:       io.NopCloser(strings.NewReader("broken")),
+					}, nil
+				}),
+			},
+		}
 
-	c := testClient()
-	_, err := c.HTML(context.Background(), srv.URL+"/")
-	assert.ErrorContains(t, err, "HTTP 500")
-	assert.Equal(t, retryAttempts, attempts)
+		// With 1s backoff doubling: attempts at t=0, 1s, 3s. Timeout at 5s
+		// expires during the 4s backoff wait.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err := c.HTML(ctx, "http://fake/test")
+		assert.ErrorContains(t, err, "HTTP 500")
+		assert.Equal(t, 3, attempts)
+	})
 }
 
 func TestHTML_ContextCancelledDuringBackoff(t *testing.T) {
@@ -304,7 +330,39 @@ func TestHTML_ContextCancelledDuringBackoff(t *testing.T) {
 		synctest.Wait()
 
 		err := <-done
-		assert.ErrorIs(t, err, context.Canceled)
+		assert.ErrorContains(t, err, "HTTP 500")
+	})
+}
+
+func TestHTML_ExponentialBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var timestamps []time.Duration
+		start := time.Now()
+
+		c := Client{
+			RetryBackoff:    time.Second,
+			MaxRetryBackoff: 20 * time.Second,
+			HTTPClient: &http.Client{
+				Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+					timestamps = append(timestamps, time.Since(start))
+					return &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Body:       io.NopCloser(strings.NewReader("broken")),
+					}, nil
+				}),
+			},
+		}
+
+		// Timeout at 5s: attempts at t=0, 1s, 3s. The 4s backoff exceeds timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, _ = c.HTML(ctx, "http://fake/test")
+
+		require.Len(t, timestamps, 3)
+		assert.Equal(t, time.Duration(0), timestamps[0])
+		assert.Equal(t, time.Second, timestamps[1])
+		assert.Equal(t, 3*time.Second, timestamps[2])
 	})
 }
 

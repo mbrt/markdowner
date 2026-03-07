@@ -16,17 +16,18 @@ import (
 
 const (
 	// Maximize compatibility with various sites by using a common desktop browser user agent.
-	userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-	defaultTimeout = 30 * time.Second
-	retryAttempts  = 3
-	retryBackoff   = time.Second
+	userAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+	defaultTimeout  = 30 * time.Second
+	retryBackoff    = time.Second
+	maxRetryBackoff = 20 * time.Second
 )
 
 // Client configures HTTP fetching behavior. The zero value is ready to use
 // with sensible defaults.
 type Client struct {
-	HTTPClient   *http.Client
-	RetryBackoff time.Duration
+	HTTPClient      *http.Client
+	RetryBackoff    time.Duration
+	MaxRetryBackoff time.Duration
 }
 
 func (c Client) httpClient() *http.Client {
@@ -36,32 +37,43 @@ func (c Client) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-func (c Client) backoff() time.Duration {
+func (c Client) initialBackoff() time.Duration {
 	if c.RetryBackoff > 0 {
 		return c.RetryBackoff
 	}
 	return retryBackoff
 }
 
+func (c Client) maxBackoff() time.Duration {
+	if c.MaxRetryBackoff > 0 {
+		return c.MaxRetryBackoff
+	}
+	return maxRetryBackoff
+}
+
 // HTML fetches the raw HTML content of the page at pageURL.
-// It retries up to retryAttempts times with a backoff delay between attempts.
+// It retries with exponential backoff until the context is done.
 func (c Client) HTML(ctx context.Context, pageURL string) (string, error) {
+	backoff := c.initialBackoff()
+	maxBO := c.maxBackoff()
+
 	var lastErr error
-	for i := range retryAttempts {
+	for {
 		html, err := c.htmlOnce(ctx, pageURL)
 		if err == nil {
 			return html, nil
 		}
 		lastErr = err
-		if i < retryAttempts-1 {
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(c.backoff()):
-			}
+		select {
+		case <-ctx.Done():
+			return "", lastErr
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > maxBO {
+			backoff = maxBO
 		}
 	}
-	return "", lastErr
 }
 
 func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
@@ -113,7 +125,7 @@ func (c Client) URL(ctx context.Context, pageURL string, downloadImages bool) (o
 }
 
 // HTML fetches the raw HTML content of the page at pageURL.
-// It retries up to retryAttempts times with a retryBackoff delay between attempts.
+// It retries with exponential backoff until the context is done.
 func HTML(ctx context.Context, pageURL string) (string, error) {
 	return Client{}.HTML(ctx, pageURL)
 }
