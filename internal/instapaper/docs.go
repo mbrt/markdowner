@@ -24,6 +24,7 @@ type Fetcher struct {
 	Client         *Client
 	Parallel       int
 	DownloadImages bool
+	MaxImageSize   int64
 }
 
 // FetchDocs returns a channel of Result values. Each result is either a
@@ -60,7 +61,7 @@ func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, 
 
 	for _, b := range bookmarks {
 		g.Go(func() error {
-			doc, err := bookmarkToDoc(ctx, f.Client, b, f.DownloadImages)
+			doc, err := f.bookmarkToDoc(ctx, b)
 			res := output.Result{Doc: doc}
 			if err != nil {
 				res.Err = fmt.Errorf("bookmark %d (%q): %w", b.ID, b.Title, err)
@@ -73,37 +74,8 @@ func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, 
 	g.Wait()
 }
 
-func listFolder(ctx context.Context, client *Client, folder string, since time.Time) ([]Bookmark, error) {
-	params := DefaultBookmarkListParams
-	params.Folder = folder
-
-	var all []Bookmark
-outer:
-	for {
-		resp, err := client.ListBookmarks(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		if len(resp.Bookmarks) == 0 {
-			break
-		}
-		for _, b := range resp.Bookmarks {
-			t := time.Unix(int64(b.Time), 0)
-			if !since.IsZero() && t.Before(since) {
-				break outer
-			}
-			all = append(all, b)
-		}
-		if len(resp.Bookmarks) < params.Limit {
-			break
-		}
-		params.Skip = append(params.Skip, resp.Bookmarks...)
-	}
-	return all, nil
-}
-
-func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImages bool) (output.Doc, error) {
-	html, err := client.GetText(ctx, b.ID)
+func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, error) {
+	html, err := f.Client.GetText(ctx, b.ID)
 	if err != nil {
 		slog.Warn("GetText failed, fetching from URL", "id", b.ID, "url", b.URL, "err", err)
 		html, err = fetch.HTML(ctx, b.URL)
@@ -111,7 +83,7 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImag
 			return output.Doc{}, fmt.Errorf("fetching from URL: %w", err)
 		}
 	}
-	contents, err := convert.FromHTML(ctx, b.URL, html, downloadImages)
+	contents, err := convert.FromHTML(ctx, b.URL, html, f.DownloadImages, f.MaxImageSize)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("converting: %w", err)
 	}
@@ -149,4 +121,33 @@ func bookmarkToDoc(ctx context.Context, client *Client, b Bookmark, downloadImag
 		Markdown: body,
 		Images:   contents.Images,
 	}, nil
+}
+
+func listFolder(ctx context.Context, client *Client, folder string, since time.Time) ([]Bookmark, error) {
+	params := DefaultBookmarkListParams
+	params.Folder = folder
+
+	var all []Bookmark
+outer:
+	for {
+		resp, err := client.ListBookmarks(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.Bookmarks) == 0 {
+			break
+		}
+		for _, b := range resp.Bookmarks {
+			t := time.Unix(int64(b.Time), 0)
+			if !since.IsZero() && t.Before(since) {
+				break outer
+			}
+			all = append(all, b)
+		}
+		if len(resp.Bookmarks) < params.Limit {
+			break
+		}
+		params.Skip = append(params.Skip, resp.Bookmarks...)
+	}
+	return all, nil
 }

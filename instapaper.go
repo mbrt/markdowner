@@ -50,6 +50,7 @@ func runInstapaper(cmd *cobra.Command, _ []string) {
 		Client:         client,
 		Parallel:       parallel,
 		DownloadImages: downloadImages,
+		MaxImageSize:   maxImageSizeBytes,
 	}
 	written, failed := writer.WriteDocs(fetcher.FetchDocs(ctx, since))
 	slog.Info("done", "written", written, "out_dir", outDir)

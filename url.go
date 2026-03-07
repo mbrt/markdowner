@@ -67,6 +67,7 @@ func runURL(cmd *cobra.Command, args []string) {
 		Parallel:       parallel,
 		Timeout:        urlTimeout,
 		DownloadImages: downloadImages,
+		MaxImageSize:   maxImageSizeBytes,
 		Overrides: fetch.Overrides{
 			Title:  urlTitle,
 			Author: urlAuthor,

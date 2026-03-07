@@ -100,13 +100,13 @@ func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
 // URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
 // When downloadImages is true, external images are downloaded and stored in
 // Doc.Images.
-func (c Client) URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
+func (c Client) URL(ctx context.Context, pageURL string, downloadImages bool, maxImageSize int64) (output.Doc, error) {
 	html, err := c.HTML(ctx, pageURL)
 	if err != nil {
 		return output.Doc{}, err
 	}
 
-	contents, err := convert.FromHTML(ctx, pageURL, html, downloadImages)
+	contents, err := convert.FromHTML(ctx, pageURL, html, downloadImages, maxImageSize)
 	if err != nil {
 		return output.Doc{}, fmt.Errorf("converting %q: %w", pageURL, err)
 	}
@@ -133,8 +133,8 @@ func HTML(ctx context.Context, pageURL string) (string, error) {
 // URL fetches the page at pageURL, converts it to Markdown, and returns a Doc.
 // When downloadImages is true, external images are downloaded and stored in
 // Doc.Images.
-func URL(ctx context.Context, pageURL string, downloadImages bool) (output.Doc, error) {
-	return Client{}.URL(ctx, pageURL, downloadImages)
+func URL(ctx context.Context, pageURL string, downloadImages bool, maxImageSize int64) (output.Doc, error) {
+	return Client{}.URL(ctx, pageURL, downloadImages, maxImageSize)
 }
 
 // Overrides holds optional frontmatter overrides applied to every fetched doc.
@@ -153,6 +153,7 @@ type Fetcher struct {
 	Parallel       int
 	Timeout        time.Duration
 	DownloadImages bool
+	MaxImageSize   int64
 	Overrides      Overrides
 }
 
@@ -172,7 +173,7 @@ func (f Fetcher) FetchURLs(ctx context.Context, urls []string) <-chan output.Res
 				fetchCtx, cancel := context.WithTimeout(ctx, f.Timeout)
 				defer cancel()
 
-				doc, err := f.Client.URL(fetchCtx, pageURL, f.DownloadImages)
+				doc, err := f.Client.URL(fetchCtx, pageURL, f.DownloadImages, f.MaxImageSize)
 				if err != nil {
 					ch <- output.Result{Err: fmt.Errorf("fetching %q: %w", pageURL, err)}
 					return nil

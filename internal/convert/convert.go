@@ -32,7 +32,7 @@ type Contents struct {
 // When downloadImages is true, external images are downloaded and their
 // references in the Markdown are rewritten to local relative paths; the blobs
 // are returned in Contents.Images.
-func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (Contents, error) {
+func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool, maxImageSize int64) (Contents, error) {
 	purl, err := url.Parse(pageURL)
 	if err != nil {
 		return Contents{}, fmt.Errorf("parsing URL %q: %w", pageURL, err)
@@ -52,7 +52,7 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool) (C
 	}
 	if downloadImages {
 		imgs = map[string][]byte{}
-		plugins = append(plugins, images.NewPlugin(ctx, imgs))
+		plugins = append(plugins, images.NewPlugin(ctx, imgs, maxImageSize))
 	}
 
 	conv := converter.NewConverter(converter.WithPlugins(plugins...))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mbrt/markdowner/internal/images"
 	"github.com/mbrt/markdowner/internal/output"
 )
 
@@ -19,10 +20,12 @@ var rootCmd = &cobra.Command{
 
 // Persistent flags available to all subcommands
 var (
-	outDir         string
-	outMode        string
-	downloadImages bool
-	parallel       int
+	outDir            string
+	outMode           string
+	downloadImages    bool
+	parallel          int
+	maxImageSize      string
+	maxImageSizeBytes int64
 )
 
 var writer output.Writer
@@ -32,6 +35,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&outMode, "out-mode", string(output.ModeFlat), `output organization mode ("flat" or "week")`)
 	rootCmd.PersistentFlags().BoolVar(&downloadImages, "download-images", false, "download external images and rewrite references to local paths")
 	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
+	rootCmd.PersistentFlags().StringVar(&maxImageSize, "max-image-size", "", `max size for downloaded images (e.g. 500KB, 2MB); oversized images are converted to JPEG`)
 }
 
 func initWriter(*cobra.Command, []string) error {
@@ -40,6 +44,14 @@ func initWriter(*cobra.Command, []string) error {
 		return fmt.Errorf("invalid --out-mode %q: must be %q or %q", outMode, output.ModeFlat, output.ModeWeek)
 	}
 	writer = output.NewWriter(outDir, mode)
+
+	if maxImageSize != "" {
+		n, err := images.ParseSize(maxImageSize)
+		if err != nil {
+			return fmt.Errorf("invalid --max-image-size: %w", err)
+		}
+		maxImageSizeBytes = n
+	}
 	return nil
 }
 

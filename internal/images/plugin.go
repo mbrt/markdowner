@@ -21,18 +21,22 @@ import (
 // Non-http/https sources (relative paths, data URIs, …) are left for the
 // default commonmark renderer to handle.
 type Plugin struct {
-	ctx     context.Context
-	results map[string][]byte
-	cache   map[string]string // imgURL → local path, "" means download failed
+	ctx          context.Context
+	results      map[string][]byte
+	maxImageSize int64
+	cache        map[string]string // imgURL → local path, "" means download failed
 }
 
 // NewPlugin returns a Plugin that downloads images using ctx and accumulates
 // the raw image bytes in results (keyed by local relative path).
-func NewPlugin(ctx context.Context, results map[string][]byte) *Plugin {
+// When maxImageSize > 0, images exceeding that size are re-encoded as JPEG
+// at a quality level that fits within the limit.
+func NewPlugin(ctx context.Context, results map[string][]byte, maxImageSize int64) *Plugin {
 	return &Plugin{
-		ctx:     ctx,
-		results: results,
-		cache:   map[string]string{},
+		ctx:          ctx,
+		results:      results,
+		maxImageSize: maxImageSize,
+		cache:        map[string]string{},
 	}
 }
 
@@ -108,6 +112,18 @@ func (p *Plugin) localPathFor(imgURL string) string {
 		return ""
 	}
 
+	if p.maxImageSize > 0 {
+		compressed, newExt, err := compressToJPEG(data, p.maxImageSize)
+		if err != nil {
+			slog.Warn("compressing image", "url", imgURL, "err", err)
+		} else {
+			data = compressed
+			if newExt != "" {
+				lp = replaceExt(lp, newExt)
+			}
+		}
+	}
+
 	p.cache[imgURL] = lp
 	p.results[lp] = data
 	return lp
@@ -127,6 +143,18 @@ func (p *Plugin) localPathForEmbedded(src string) string {
 		return ""
 	}
 
+	if p.maxImageSize > 0 {
+		compressed, newExt, cerr := compressToJPEG(data, p.maxImageSize)
+		if cerr != nil {
+			slog.Warn("compressing embedded image", "err", cerr)
+		} else {
+			data = compressed
+			if newExt != "" {
+				ext = newExt
+			}
+		}
+	}
+
 	h := sha3.NewShake128()
 	h.Write(data)
 	hashBytes := make([]byte, 16)
@@ -136,6 +164,15 @@ func (p *Plugin) localPathForEmbedded(src string) string {
 	p.cache[src] = lp
 	p.results[lp] = data
 	return lp
+}
+
+// replaceExt replaces the file extension in path with newExt.
+func replaceExt(path, newExt string) string {
+	ext := strings.LastIndex(path, ".")
+	if ext < 0 {
+		return path + newExt
+	}
+	return path[:ext] + newExt
 }
 
 // escapeAlt escapes '[' and ']' in alt text so they don't break markdown link

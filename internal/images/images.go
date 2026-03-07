@@ -3,18 +3,27 @@
 package images
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png" // register PNG decoder
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	_ "golang.org/x/image/webp" // register WebP decoder
+
 	"golang.org/x/crypto/sha3"
+
+	_ "image/gif" // register GIF decoder
 )
 
 func downloadImage(ctx context.Context, imgURL string) (string, []byte, error) {
@@ -88,6 +97,92 @@ func extFromContentType(ct string) string {
 	default:
 		return ""
 	}
+}
+
+// ParseSize parses a human-readable size string (e.g. "500KB", "2MB", "1GB")
+// into bytes. Plain numbers without a suffix are treated as bytes.
+// Uses base-10 units: 1KB = 1000 bytes, 1MB = 1,000,000 bytes.
+func ParseSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+
+	suffix := strings.ToUpper(s)
+	multiplier := int64(1)
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{
+		{"GB", 1_000_000_000},
+		{"MB", 1_000_000},
+		{"KB", 1_000},
+	} {
+		if strings.HasSuffix(suffix, u.suffix) {
+			s = strings.TrimSpace(s[:len(s)-len(u.suffix)])
+			multiplier = u.mult
+			break
+		}
+	}
+
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parsing size %q: %w", s, err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("negative size: %s", s)
+	}
+	return int64(n * float64(multiplier)), nil
+}
+
+// compressToJPEG compresses image data to fit within maxSize bytes by
+// re-encoding as JPEG at progressively lower quality. Returns the
+// (possibly compressed) data, a new extension (".jpg" if converted, or ""
+// if unchanged), and any error.
+//
+// Images already under the limit, GIFs (to preserve animation), and
+// undecodable formats are returned unchanged.
+func compressToJPEG(data []byte, maxSize int64) ([]byte, string, error) {
+	if int64(len(data)) <= maxSize {
+		return data, "", nil
+	}
+
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		// Can't decode (SVG, AVIF, unknown) — keep as-is.
+		return data, "", nil
+	}
+	if format == "gif" {
+		// Preserve animated GIFs.
+		return data, "", nil
+	}
+
+	// Binary search for highest quality that fits.
+	lo, hi := 1, 100
+	var best []byte
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: mid}); err != nil {
+			return nil, "", fmt.Errorf("encoding JPEG at quality %d: %w", mid, err)
+		}
+		if int64(buf.Len()) <= maxSize {
+			best = buf.Bytes()
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	if best == nil {
+		// Even quality=1 exceeds the limit; use it as a last resort.
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 1}); err != nil {
+			return nil, "", fmt.Errorf("encoding JPEG at quality 1: %w", err)
+		}
+		best = buf.Bytes()
+	}
+	return best, ".jpg", nil
 }
 
 // decodeDataURI parses a data URI of the form "data:<mediatype>;base64,<data>"

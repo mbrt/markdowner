@@ -21,7 +21,7 @@ func TestFromHTML_Basic(t *testing.T) {
 </body>
 </html>`
 
-	got, err := FromHTML(context.Background(), "https://example.com/article", html, false)
+	got, err := FromHTML(context.Background(), "https://example.com/article", html, false, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Markdown)
 	assert.Contains(t, got.Markdown, "test paragraph")
@@ -34,13 +34,13 @@ func TestFromHTML_Title(t *testing.T) {
 <body><article><p>Content.</p></article></body>
 </html>`
 
-	got, err := FromHTML(context.Background(), "https://example.com/", html, false)
+	got, err := FromHTML(context.Background(), "https://example.com/", html, false, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Title)
 }
 
 func TestFromHTML_InvalidURL(t *testing.T) {
-	_, err := FromHTML(context.Background(), "://bad-url", "<html></html>", false)
+	_, err := FromHTML(context.Background(), "://bad-url", "<html></html>", false, 0)
 	assert.Error(t, err)
 }
 
@@ -58,7 +58,7 @@ func TestFromHTML_Headings(t *testing.T) {
 </body>
 </html>`
 
-	got, err := FromHTML(context.Background(), "https://example.com/heading", html, false)
+	got, err := FromHTML(context.Background(), "https://example.com/heading", html, false, 0)
 	require.NoError(t, err)
 	assert.Contains(t, got.Markdown, "#")
 }
