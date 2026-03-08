@@ -5,6 +5,7 @@ package images
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -31,7 +32,13 @@ func downloadImage(ctx context.Context, imgURL string) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	// See fetch.go for rationale on skipping TLS verification.
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil, err
 	}

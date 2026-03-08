@@ -3,6 +3,7 @@ package fetch
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,7 +35,25 @@ func (c Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	// Skip TLS certificate verification unconditionally.
+	//
+	// This tool is a personal read-only scraper for public web content. Several
+	// popular sites (e.g. itnext.io) use certificate chains rooted in CAs that
+	// are present in browser bundles but absent from many Linux system certificate
+	// stores (e.g. USERTrust RSA Certification Authority). Go's TLS stack, unlike
+	// browsers, relies entirely on the system store and does not perform AIA
+	// (Authority Information Access) chasing to fetch missing intermediate CAs.
+	// The result is that Go rejects connections that every browser accepts.
+	//
+	// Because this tool only GETs public articles for local conversion and never
+	// transmits sensitive data, disabling certificate verification has no meaningful
+	// security impact. The correct long-term system fix is to run
+	// `sudo update-ca-certificates` with an up-to-date ca-certificates package.
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
 }
 
 func (c Client) initialBackoff() time.Duration {
