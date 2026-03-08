@@ -101,11 +101,25 @@ func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	// Accept-Encoding is intentionally omitted: Go's Transport adds
+	// "Accept-Encoding: gzip" automatically and transparently decompresses
+	// the response. Explicitly setting this header would disable that
+	// automatic decompression, leaving us with raw compressed bytes.
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Site", "none")
+	req.Header.Set("Sec-Fetch-User", "?1")
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden && resp.Header.Get("cf-mitigated") == "challenge" {
+		return htmlWithBrowser(ctx, pageURL)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
