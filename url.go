@@ -30,7 +30,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(urlCmd)
-	urlCmd.Flags().DurationVar(&urlTimeout, "timeout", 2*time.Minute, "per-URL timeout")
+	urlCmd.Flags().DurationVar(&urlTimeout, "timeout", 10*time.Second, "per-URL timeout")
 	urlCmd.Flags().StringVar(&urlTitle, "title", "", "override article title (single URL only)")
 	urlCmd.Flags().StringVar(&urlAuthor, "author", "", "override article author (single URL only)")
 	urlCmd.Flags().StringVar(&urlDate, "date", "", "override article date in RFC3339 or YYYY-MM-DD (single URL only)")

@@ -18,11 +18,15 @@ var instapaperCmd = &cobra.Command{
 	Run:   runInstapaper,
 }
 
-var instapaperSince string
+var (
+	instapaperSince   string
+	instapaperTimeout time.Duration
+)
 
 func init() {
 	rootCmd.AddCommand(instapaperCmd)
 	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "", "only fetch articles added after this date (RFC3339 or YYYY-MM-DD)")
+	instapaperCmd.Flags().DurationVar(&instapaperTimeout, "timeout", 10*time.Second, "per-article timeout")
 }
 
 func runInstapaper(cmd *cobra.Command, _ []string) {
@@ -49,6 +53,7 @@ func runInstapaper(cmd *cobra.Command, _ []string) {
 	fetcher := instapaper.Fetcher{
 		Client:         client,
 		Parallel:       parallel,
+		Timeout:        instapaperTimeout,
 		DownloadImages: downloadImages,
 		MaxImageSize:   maxImageSizeBytes,
 	}

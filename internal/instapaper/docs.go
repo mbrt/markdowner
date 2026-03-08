@@ -23,6 +23,7 @@ func ParseDate(s string) (time.Time, error) {
 type Fetcher struct {
 	Client         *Client
 	Parallel       int
+	Timeout        time.Duration
 	DownloadImages bool
 	MaxImageSize   int64
 }
@@ -50,6 +51,13 @@ func (f Fetcher) FetchDocs(ctx context.Context, since time.Time) <-chan output.R
 	return ch
 }
 
+func (f Fetcher) timeout() time.Duration {
+	if f.Timeout > 0 {
+		return f.Timeout
+	}
+	return 10 * time.Second
+}
+
 func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, bookmarks []Bookmark) {
 	parallel := f.Parallel
 	if parallel <= 0 {
@@ -61,7 +69,9 @@ func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, 
 
 	for _, b := range bookmarks {
 		g.Go(func() error {
-			doc, err := f.bookmarkToDoc(ctx, b)
+			fetchCtx, cancel := context.WithTimeout(ctx, f.timeout())
+			defer cancel()
+			doc, err := f.bookmarkToDoc(fetchCtx, b)
 			res := output.Result{Doc: doc}
 			if err != nil {
 				res.Err = fmt.Errorf("bookmark %d (%q): %w", b.ID, b.Title, err)

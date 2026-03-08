@@ -17,7 +17,7 @@ import (
 const (
 	// Maximize compatibility with various sites by using a common desktop browser user agent.
 	userAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-	defaultTimeout  = 30 * time.Second
+	defaultTimeout  = 10 * time.Second
 	retryBackoff    = time.Second
 	maxRetryBackoff = 20 * time.Second
 )
