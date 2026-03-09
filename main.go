@@ -23,6 +23,7 @@ var (
 	outDir            string
 	outMode           string
 	downloadImages    bool
+	imageStoreDir     string
 	parallel          int
 	maxImageSize      string
 	maxImageSizeBytes int64
@@ -34,6 +35,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&outDir, "out-dir", ".", "output directory")
 	rootCmd.PersistentFlags().StringVar(&outMode, "out-mode", string(output.ModeFlat), `output organization mode ("flat" or "week")`)
 	rootCmd.PersistentFlags().BoolVar(&downloadImages, "download-images", false, "download external images and rewrite references to local paths")
+	rootCmd.PersistentFlags().StringVar(&imageStoreDir, "image-store", "", "shared image store directory to deduplicate downloaded images")
 	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
 	rootCmd.PersistentFlags().StringVar(&maxImageSize, "max-image-size", "", `max size for downloaded images (e.g. 500KB, 2MB); oversized images are converted to JPEG`)
 }
@@ -43,7 +45,7 @@ func initWriter(*cobra.Command, []string) error {
 	if mode != output.ModeFlat && mode != output.ModeWeek {
 		return fmt.Errorf("invalid --out-mode %q: must be %q or %q", outMode, output.ModeFlat, output.ModeWeek)
 	}
-	writer = output.NewWriter(outDir, mode)
+	writer = output.NewWriter(outDir, mode, imageStoreDir)
 
 	if maxImageSize != "" {
 		n, err := images.ParseSize(maxImageSize)

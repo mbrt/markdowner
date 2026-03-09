@@ -56,7 +56,7 @@ func TestWriteDoc(t *testing.T) {
 		Frontmatter: fm,
 		Markdown:    body,
 	}
-	_, err := NewWriter(dir, ModeFlat).WriteDoc(doc)
+	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(doc)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "test-article.md"))
@@ -80,7 +80,7 @@ func TestWriteDoc_NoTags(t *testing.T) {
 		Saved: time.Now(),
 	}
 
-	_, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
@@ -94,7 +94,7 @@ func TestWriteDoc_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Saved: time.Now()}
 
-	_, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: ""})
+	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: ""})
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(dir, "x.md"))
 	assert.NoError(t, err)
@@ -111,7 +111,7 @@ func TestWriteDoc_WritesImages(t *testing.T) {
 		},
 	}
 
-	_, err := NewWriter(dir, ModeFlat).WriteDoc(doc)
+	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(doc)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(dir, "img", "abc123.png"))
@@ -123,7 +123,7 @@ func TestWriteDoc_EmptyTitleFallsBackToURL(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Saved: time.Now()}
 
-	path, err := NewWriter(dir, ModeFlat).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	path, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "example-com-some-page.md"), path)
 }
@@ -168,11 +168,124 @@ func TestWriteDoc_ModeWeek(t *testing.T) {
 	saved := time.Date(2024, 3, 18, 0, 0, 0, 0, time.UTC) // ISO week 12
 	fm := Frontmatter{Title: "Week Test", URL: "https://example.com/w", Saved: saved}
 
-	path, err := NewWriter(dir, ModeWeek).WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	path, err := NewWriter(dir, ModeWeek, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 
 	expected := filepath.Join(dir, "2024", "w12", "week-test.md")
 	assert.Equal(t, expected, path)
 	_, err = os.Stat(expected)
 	assert.NoError(t, err)
+}
+
+func TestWriteDoc_ImageStore_SubdirStructure(t *testing.T) {
+	outDir := t.TempDir()
+	storeDir := t.TempDir()
+
+	fm := Frontmatter{Title: "Store Test", URL: "https://example.com/store", Saved: time.Now()}
+	// Use a name long enough to split: "ab" subdir + "cdef.png" filename.
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "![pic](img/abcdef.png)",
+		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
+	}
+
+	_, err := NewWriter(outDir, ModeFlat, storeDir).WriteDoc(doc)
+	require.NoError(t, err)
+
+	// Image must be in store at <storeDir>/ab/cdef.png.
+	storePath := filepath.Join(storeDir, "ab", "cdef.png")
+	data, err := os.ReadFile(storePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("imgdata"), data)
+}
+
+func TestWriteDoc_ImageStore_SymlinkCreated(t *testing.T) {
+	outDir := t.TempDir()
+	storeDir := t.TempDir()
+
+	fm := Frontmatter{Title: "Symlink Test", URL: "https://example.com/sym", Saved: time.Now()}
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "![pic](img/abcdef.png)",
+		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
+	}
+
+	_, err := NewWriter(outDir, ModeFlat, storeDir).WriteDoc(doc)
+	require.NoError(t, err)
+
+	linkPath := filepath.Join(outDir, "img", "abcdef.png")
+
+	// Must be a symlink.
+	fi, err := os.Lstat(linkPath)
+	require.NoError(t, err)
+	assert.True(t, fi.Mode()&os.ModeSymlink != 0, "expected a symlink at %s", linkPath)
+
+	// Symlink target must be relative (not absolute).
+	target, err := os.Readlink(linkPath)
+	require.NoError(t, err)
+	assert.False(t, filepath.IsAbs(target), "symlink target should be relative, got %q", target)
+
+	// Following the symlink must reach the actual store file.
+	resolved, err := filepath.EvalSymlinks(linkPath)
+	require.NoError(t, err)
+	absStore, err := filepath.Abs(filepath.Join(storeDir, "ab", "cdef.png"))
+	require.NoError(t, err)
+	assert.Equal(t, absStore, resolved)
+}
+
+func TestWriteDoc_ImageStore_Deduplication(t *testing.T) {
+	outDir := t.TempDir()
+	storeDir := t.TempDir()
+
+	fm := Frontmatter{Title: "Dedup Test", URL: "https://example.com/dedup", Saved: time.Now()}
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "![pic](img/abcdef.png)",
+		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
+	}
+	w := NewWriter(outDir, ModeFlat, storeDir)
+
+	// Write the same document twice; both should succeed without error.
+	_, err := w.WriteDoc(doc)
+	require.NoError(t, err)
+	_, err = w.WriteDoc(doc)
+	require.NoError(t, err)
+
+	// The store file is written exactly once (unchanged).
+	data, err := os.ReadFile(filepath.Join(storeDir, "ab", "cdef.png"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("imgdata"), data)
+}
+
+func TestWriteDoc_ImageStore_WeekMode_RelativeSymlink(t *testing.T) {
+	outDir := t.TempDir()
+	storeDir := t.TempDir()
+
+	saved := time.Date(2024, 3, 18, 0, 0, 0, 0, time.UTC) // ISO week 12
+	fm := Frontmatter{Title: "Week Store", URL: "https://example.com/ws", Saved: saved}
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "![pic](img/abcdef.png)",
+		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
+	}
+
+	_, err := NewWriter(outDir, ModeWeek, storeDir).WriteDoc(doc)
+	require.NoError(t, err)
+
+	linkPath := filepath.Join(outDir, "2024", "w12", "img", "abcdef.png")
+
+	fi, err := os.Lstat(linkPath)
+	require.NoError(t, err)
+	assert.True(t, fi.Mode()&os.ModeSymlink != 0, "expected a symlink at %s", linkPath)
+
+	target, err := os.Readlink(linkPath)
+	require.NoError(t, err)
+	assert.False(t, filepath.IsAbs(target), "symlink target should be relative, got %q", target)
+
+	// Symlink must resolve to the store file.
+	resolved, err := filepath.EvalSymlinks(linkPath)
+	require.NoError(t, err)
+	absStore, err := filepath.Abs(filepath.Join(storeDir, "ab", "cdef.png"))
+	require.NoError(t, err)
+	assert.Equal(t, absStore, resolved)
 }

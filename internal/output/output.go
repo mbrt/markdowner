@@ -2,6 +2,7 @@
 package output
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -47,13 +48,17 @@ type Doc struct {
 
 // Writer writes Docs to the filesystem according to its configuration.
 type Writer struct {
-	outDir string
-	mode   Mode
+	outDir        string
+	mode          Mode
+	imageStoreDir string
 }
 
 // NewWriter creates a Writer that writes to outDir using the given mode.
-func NewWriter(outDir string, mode Mode) Writer {
-	return Writer{outDir: outDir, mode: mode}
+// When imageStoreDir is non-empty, downloaded images are stored in a shared
+// directory with a two-character subdirectory prefix for deduplication, and
+// each article's img/ directory contains relative symlinks into that store.
+func NewWriter(outDir string, mode Mode, imageStoreDir string) Writer {
+	return Writer{outDir: outDir, mode: mode, imageStoreDir: imageStoreDir}
 }
 
 // Result holds either a successfully converted doc or an error.
@@ -70,7 +75,7 @@ func (w Writer) WriteDoc(doc Doc) (string, error) {
 	if w.mode == ModeWeek {
 		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
 	}
-	return writeFile(dir, doc)
+	return writeFile(dir, w.imageStoreDir, doc)
 }
 
 // WriteDocs consumes results from a channel, writes each successful doc to
@@ -95,13 +100,70 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 	return written, failed
 }
 
+// writeImageToStore writes image data to the shared store and creates a
+// relative symlink inside <docDir>/img/ pointing to the store file.
+//
+// relPath is of the form "img/<hash><ext>" as produced by the images plugin.
+// The store places the file at <storeDir>/<hash[0:2]>/<hash[2:]><ext>, using
+// the first two characters of the filename as a subdirectory to avoid large
+// flat directories. Both the store write and the symlink creation are skipped
+// if the target already exists, enabling safe deduplication and idempotent
+// re-runs.
+func writeImageToStore(docDir, storeDir, relPath string, data []byte) error {
+	// relPath = "img/<hash><ext>", e.g. "img/0a1b2c….png"
+	name := strings.TrimPrefix(relPath, "img/")
+	if len(name) < 2 {
+		return fmt.Errorf("image path too short to split into subdirectory: %q", relPath)
+	}
+	subDir := name[0:2]
+	fileName := name[2:]
+
+	storePath := filepath.Join(storeDir, subDir, fileName)
+
+	// Write to store (skip if already present — deduplication).
+	if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
+		return fmt.Errorf("creating image store directory: %w", err)
+	}
+	if _, err := os.Stat(storePath); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(storePath, data, 0o644); err != nil {
+			return fmt.Errorf("writing image to store %q: %w", storePath, err)
+		}
+	}
+
+	// Create symlink in <docDir>/img/ pointing to the store file.
+	imgDir := filepath.Join(docDir, "img")
+	if err := os.MkdirAll(imgDir, 0o755); err != nil {
+		return fmt.Errorf("creating img directory: %w", err)
+	}
+	linkPath := filepath.Join(imgDir, name)
+
+	// Compute a relative symlink target so the tree stays portable.
+	absImgDir, err := filepath.Abs(imgDir)
+	if err != nil {
+		return fmt.Errorf("resolving img directory: %w", err)
+	}
+	absStorePath, err := filepath.Abs(storePath)
+	if err != nil {
+		return fmt.Errorf("resolving store path: %w", err)
+	}
+	target, err := filepath.Rel(absImgDir, absStorePath)
+	if err != nil {
+		return fmt.Errorf("computing relative symlink target: %w", err)
+	}
+
+	if err := os.Symlink(target, linkPath); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("creating symlink %q -> %q: %w", linkPath, target, err)
+	}
+	return nil
+}
+
 // weekSubDir returns baseDir/YYYY/wWW for the ISO week containing t.
 func weekSubDir(baseDir string, t time.Time) string {
 	year, week := t.ISOWeek()
 	return filepath.Join(baseDir, fmt.Sprintf("%04d", year), fmt.Sprintf("w%02d", week))
 }
 
-func writeFile(outDir string, doc Doc) (string, error) {
+func writeFile(outDir string, imageStoreDir string, doc Doc) (string, error) {
 	filename := slugify(targetName(doc))
 	fm := doc.Frontmatter
 	body := doc.Markdown
@@ -123,12 +185,18 @@ func writeFile(outDir string, doc Doc) (string, error) {
 		return "", fmt.Errorf("writing file %q: %w", path, err)
 	}
 	for relPath, data := range doc.Images {
-		dest := filepath.Join(outDir, relPath)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return "", fmt.Errorf("creating image directory: %w", err)
-		}
-		if err := os.WriteFile(dest, data, 0o644); err != nil {
-			return "", fmt.Errorf("writing image %q: %w", dest, err)
+		if imageStoreDir != "" {
+			if err := writeImageToStore(outDir, imageStoreDir, relPath, data); err != nil {
+				return "", err
+			}
+		} else {
+			dest := filepath.Join(outDir, relPath)
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return "", fmt.Errorf("creating image directory: %w", err)
+			}
+			if err := os.WriteFile(dest, data, 0o644); err != nil {
+				return "", fmt.Errorf("writing image %q: %w", dest, err)
+			}
 		}
 	}
 	return path, nil
