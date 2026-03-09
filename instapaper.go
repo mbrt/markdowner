@@ -25,7 +25,8 @@ var (
 
 func init() {
 	rootCmd.AddCommand(instapaperCmd)
-	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "", "only fetch articles added after this date (RFC3339 or YYYY-MM-DD)")
+	instapaperCmd.Flags().StringVar(&instapaperSince, "since", "",
+		`only fetch articles added after this date (RFC3339, YYYY-MM-DD, or relative days e.g. "7d")`)
 	instapaperCmd.Flags().DurationVar(&instapaperTimeout, "timeout", 10*time.Second, "per-article timeout")
 }
 
