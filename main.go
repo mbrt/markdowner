@@ -27,6 +27,7 @@ var (
 	parallel          int
 	maxImageSize      string
 	maxImageSizeBytes int64
+	ignoreFailures    bool
 )
 
 var writer output.Writer
@@ -38,6 +39,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&imageStoreDir, "image-store", "", "shared image store directory to deduplicate downloaded images")
 	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
 	rootCmd.PersistentFlags().StringVar(&maxImageSize, "max-image-size", "", `max size for downloaded images (e.g. 500KB, 2MB); oversized images are converted to JPEG`)
+	rootCmd.PersistentFlags().BoolVar(&ignoreFailures, "ignore-failures", false, "on fetch failure, write a stub file with frontmatter only instead of skipping")
 }
 
 func initWriter(*cobra.Command, []string) error {
@@ -46,6 +48,7 @@ func initWriter(*cobra.Command, []string) error {
 		return fmt.Errorf("invalid --out-mode %q: must be %q or %q", outMode, output.ModeFlat, output.ModeWeek)
 	}
 	writer = output.NewWriter(outDir, mode, imageStoreDir)
+	writer.IgnoreFailures = ignoreFailures
 
 	if maxImageSize != "" {
 		n, err := images.ParseSize(maxImageSize)

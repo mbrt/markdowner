@@ -289,3 +289,132 @@ func TestWriteDoc_ImageStore_WeekMode_RelativeSymlink(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, absStore, resolved)
 }
+
+func TestWriteStub_WritesOnlyFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	doc := Doc{
+		Frontmatter: Frontmatter{
+			Title: "Stub Article",
+			URL:   "https://example.com/stub",
+			Saved: saved,
+			Tags:  []string{"stub"},
+		},
+	}
+
+	w := NewWriter(dir, ModeFlat, "")
+	err := w.WriteStub(doc)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(dir, "stub-article.md"))
+	require.NoError(t, err)
+	s := string(content)
+
+	assert.True(t, strings.HasPrefix(s, "---\n"), "file should start with YAML frontmatter delimiter")
+	assert.Contains(t, s, "title: Stub Article")
+	assert.Contains(t, s, "url: https://example.com/stub")
+	assert.Contains(t, s, "saved: 2024-06-01T10:00:00Z")
+	assert.Contains(t, s, "- stub")
+	// No markdown body after the closing delimiter.
+	parts := strings.SplitN(s, "---\n", 3)
+	require.Len(t, parts, 3, "expected opening ---, frontmatter, and closing ---")
+	assert.Empty(t, strings.TrimSpace(parts[2]), "stub should have no markdown body")
+}
+
+func TestWriteStub_SkipsExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	doc := Doc{
+		Frontmatter: Frontmatter{
+			Title: "Existing Article",
+			URL:   "https://example.com/existing",
+			Saved: saved,
+		},
+	}
+
+	// Pre-create the file with different content.
+	path := filepath.Join(dir, "existing-article.md")
+	original := "original content"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	w := NewWriter(dir, ModeFlat, "")
+	err := w.WriteStub(doc)
+	require.NoError(t, err)
+
+	// File must not have been overwritten.
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(content))
+}
+
+func TestWriteDocs_IgnoreFailures_WritesStub(t *testing.T) {
+	dir := t.TempDir()
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	results := make(chan Result, 2)
+	results <- Result{
+		Doc: Doc{
+			Frontmatter: Frontmatter{
+				Title: "Failed Article",
+				URL:   "https://example.com/fail",
+				Saved: saved,
+			},
+		},
+		Err: assert.AnError,
+	}
+	results <- Result{
+		Doc: Doc{
+			Frontmatter: Frontmatter{Title: "OK Article", URL: "https://example.com/ok", Saved: saved},
+			Markdown:    "body",
+		},
+	}
+	close(results)
+
+	w := NewWriter(dir, ModeFlat, "")
+	w.IgnoreFailures = true
+	written, failed := w.WriteDocs(results)
+
+	assert.Equal(t, 1, written)
+	assert.Equal(t, 1, failed)
+
+	// Stub for the failed article must exist.
+	content, err := os.ReadFile(filepath.Join(dir, "failed-article.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "url: https://example.com/fail")
+	// No body in stub.
+	parts := strings.SplitN(string(content), "---\n", 3)
+	require.Len(t, parts, 3)
+	assert.Empty(t, strings.TrimSpace(parts[2]))
+
+	// Full article must also exist.
+	_, err = os.Stat(filepath.Join(dir, "ok-article.md"))
+	require.NoError(t, err)
+}
+
+func TestWriteDocs_IgnoreFailures_False_NoStub(t *testing.T) {
+	dir := t.TempDir()
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	results := make(chan Result, 1)
+	results <- Result{
+		Doc: Doc{
+			Frontmatter: Frontmatter{
+				Title: "Failed Article",
+				URL:   "https://example.com/fail",
+				Saved: saved,
+			},
+		},
+		Err: assert.AnError,
+	}
+	close(results)
+
+	w := NewWriter(dir, ModeFlat, "")
+	// IgnoreFailures defaults to false.
+	written, failed := w.WriteDocs(results)
+
+	assert.Equal(t, 0, written)
+	assert.Equal(t, 1, failed)
+
+	// No stub should have been written.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}

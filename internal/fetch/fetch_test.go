@@ -212,18 +212,20 @@ func TestFetchURLs_AppliesOverrides(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, results[0].Doc.Frontmatter.Tags)
 }
 
-func TestFetchURLs_OverridesNotAppliedOnError(t *testing.T) {
+func TestFetchURLs_OverridesAppliedOnError(t *testing.T) {
 	srv := testServer(t)
 	f := Fetcher{
 		Client:    testClient(),
 		Timeout:   100 * time.Millisecond,
-		Overrides: Overrides{Title: "Should Not Appear"},
+		Overrides: Overrides{Title: "Override Title"},
 	}
 
 	results := collectResults(f.FetchURLs(context.Background(), []string{srv.URL + "/error"}))
 	require.Len(t, results, 1)
 	assert.Error(t, results[0].Err)
-	assert.Empty(t, results[0].Doc.Frontmatter.Title)
+	// Overrides are applied to the partial Doc so stubs carry the known info.
+	assert.Equal(t, "Override Title", results[0].Doc.Frontmatter.Title)
+	assert.Equal(t, srv.URL+"/error", results[0].Doc.Frontmatter.URL)
 }
 
 func TestFetchURLs_ContextCancellation(t *testing.T) {

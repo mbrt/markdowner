@@ -51,6 +51,11 @@ type Writer struct {
 	outDir        string
 	mode          Mode
 	imageStoreDir string
+	// IgnoreFailures, when true, causes WriteDocs to write a stub file
+	// (frontmatter only, no body) for results that have an error but carry
+	// partial Doc metadata. The stub is skipped when the target file already
+	// exists.
+	IgnoreFailures bool
 }
 
 // NewWriter creates a Writer that writes to outDir using the given mode.
@@ -85,6 +90,11 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 	for res := range results {
 		if res.Err != nil {
 			slog.Warn("fetching article", "err", res.Err)
+			if w.IgnoreFailures && res.Doc.Frontmatter.URL != "" {
+				if err := w.WriteStub(res.Doc); err != nil {
+					slog.Warn("writing stub article", "url", res.Doc.Frontmatter.URL, "err", err)
+				}
+			}
 			failed++
 			continue
 		}
@@ -98,6 +108,32 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 		written++
 	}
 	return written, failed
+}
+
+// WriteStub writes a frontmatter-only Markdown file for doc. It is a no-op
+// (with an info log) when the target file already exists, so it never
+// overwrites existing content.
+func (w Writer) WriteStub(doc Doc) error {
+	dir := w.outDir
+	if w.mode == ModeWeek {
+		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	}
+	filename := slugify(targetName(doc))
+	path := filepath.Join(dir, filename+".md")
+	if _, err := os.Stat(path); err == nil {
+		slog.Info("skipping stub (file already exists)", "path", path)
+		return nil
+	}
+	stub := Doc{Frontmatter: doc.Frontmatter}
+	path, err := writeFile(dir, "", stub)
+	if err != nil {
+		return err
+	}
+	slog.Info("written stub", "path", path)
+	return nil
 }
 
 // writeImageToStore writes image data to the shared store and creates a

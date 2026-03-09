@@ -208,11 +208,17 @@ func (f Fetcher) FetchURLs(ctx context.Context, urls []string) <-chan output.Res
 
 				doc, err := f.Client.URL(fetchCtx, pageURL, f.DownloadImages, f.MaxImageSize)
 				if err != nil {
-					ch <- output.Result{Err: fmt.Errorf("fetching %q: %w", pageURL, err)}
-					return nil
+					// Produce a stub doc on error, to allow partial results.
+					doc = output.Doc{
+						Frontmatter: output.Frontmatter{
+							URL:   pageURL,
+							Saved: time.Now().UTC(),
+						},
+					}
+					err = fmt.Errorf("fetching %q: %w", pageURL, err)
 				}
 				f.Overrides.apply(&doc)
-				ch <- output.Result{Doc: doc}
+				ch <- output.Result{Doc: doc, Err: err}
 				return nil
 			})
 		}

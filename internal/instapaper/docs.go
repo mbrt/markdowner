@@ -72,11 +72,14 @@ func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, 
 			fetchCtx, cancel := context.WithTimeout(ctx, f.timeout())
 			defer cancel()
 			doc, err := f.bookmarkToDoc(fetchCtx, b)
-			res := output.Result{Doc: doc}
 			if err != nil {
-				res.Err = fmt.Errorf("bookmark %d (%q): %w", b.ID, b.Title, err)
+				ch <- output.Result{
+					Doc: bookmarkPartialDoc(b),
+					Err: fmt.Errorf("bookmark %d (%q): %w", b.ID, b.Title, err),
+				}
+				return nil
 			}
-			ch <- res
+			ch <- output.Result{Doc: doc}
 			return nil
 		})
 	}
@@ -160,4 +163,26 @@ outer:
 		params.Skip = append(params.Skip, resp.Bookmarks...)
 	}
 	return all, nil
+}
+
+// bookmarkPartialDoc builds a Doc from bookmark metadata alone — used when the
+// full fetch fails so callers still have enough info to write a stub file.
+func bookmarkPartialDoc(b Bookmark) output.Doc {
+	title := b.Title
+	if title == "" {
+		title = b.URL
+	}
+	var tags []string
+	for _, t := range b.Tags {
+		tags = append(tags, t.Name)
+	}
+	return output.Doc{
+		Frontmatter: output.Frontmatter{
+			Title:  title,
+			URL:    b.URL,
+			Source: "instapaper",
+			Saved:  time.Unix(int64(b.Time), 0).UTC(),
+			Tags:   tags,
+		},
+	}
 }
