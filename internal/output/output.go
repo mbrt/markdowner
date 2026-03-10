@@ -230,8 +230,12 @@ func writeFile(outDir string, imageStoreDir string, doc Doc) (string, error) {
 			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 				return "", fmt.Errorf("creating image directory: %w", err)
 			}
-			if err := os.WriteFile(dest, data, 0o644); err != nil {
-				return "", fmt.Errorf("writing image %q: %w", dest, err)
+			// Skip writing the image if the target already exists, to avoid
+			// churn on slightly different image data across runs.
+			if _, err := os.Stat(dest); errors.Is(err, os.ErrNotExist) {
+				if err := os.WriteFile(dest, data, 0o644); err != nil {
+					return "", fmt.Errorf("writing image %q: %w", dest, err)
+				}
 			}
 		}
 	}
