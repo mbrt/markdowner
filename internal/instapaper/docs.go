@@ -89,7 +89,8 @@ func (f Fetcher) processBookmarks(ctx context.Context, ch chan<- output.Result, 
 
 func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, error) {
 	html, err := f.Client.GetText(ctx, b.ID)
-	if err != nil {
+	hasInstapaperText := err == nil && html != ""
+	if !hasInstapaperText {
 		slog.Warn("GetText failed, fetching from URL", "id", b.ID, "url", b.URL, "err", err)
 		html, err = fetch.HTML(ctx, b.URL)
 		if err != nil {
@@ -101,25 +102,26 @@ func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, err
 		return output.Doc{}, fmt.Errorf("converting: %w", err)
 	}
 
+	if hasInstapaperText {
+		// Instapaper's text extraction is better, but misses some metadata, so
+		// we merge the results from a raw fetch. No need to do this if we had
+		// to fetch the raw HTML, since that content is all we have anyway.
+		contents = updateContentsFromURL(ctx, contents, b.URL)
+	}
+
 	title := b.Title
 	if title == "" {
 		title = contents.Title
 	}
-	if title == "" {
-		title = b.URL
-	}
-
-	var tags []string
-	for _, t := range b.Tags {
-		tags = append(tags, t.Name)
-	}
-
 	body := contents.Markdown
 	if body == "" {
 		body = b.Description
 	}
-
-	date := time.Unix(int64(b.Time), 0).UTC()
+	var tags []string
+	for _, t := range b.Tags {
+		tags = append(tags, t.Name)
+	}
+	saved := time.Unix(int64(b.Time), 0).UTC()
 
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
@@ -128,7 +130,7 @@ func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, err
 			URL:    b.URL,
 			Source: "instapaper",
 			Date:   contents.Date,
-			Saved:  date,
+			Saved:  saved,
 			Tags:   tags,
 		},
 		Markdown: body,
@@ -185,4 +187,21 @@ func bookmarkPartialDoc(b Bookmark) output.Doc {
 			Tags:   tags,
 		},
 	}
+}
+
+func updateContentsFromURL(ctx context.Context, contents convert.Contents, pageURL string) convert.Contents {
+	contents2, err := fetch.URL(ctx, pageURL, false, 0)
+	if err != nil {
+		return contents
+	}
+	if contents.Title == "" {
+		contents.Title = contents2.Frontmatter.Title
+	}
+	if contents.Author == "" {
+		contents.Author = contents2.Frontmatter.Author
+	}
+	if contents.Date == nil && contents2.Frontmatter.Date != nil {
+		contents.Date = contents2.Frontmatter.Date
+	}
+	return contents
 }
