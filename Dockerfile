@@ -10,6 +10,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        git \
         chromium \
         ca-certificates \
         fonts-liberation && \
