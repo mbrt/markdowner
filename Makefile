@@ -1,4 +1,4 @@
-.PHONY: test unit-test lint format build
+.PHONY: test unit-test lint format build build-docker
 
 test: lint unit-test
 
@@ -15,3 +15,6 @@ format:
 
 build:
 	go build .
+
+build-docker:
+	docker build -t markdowner:latest .

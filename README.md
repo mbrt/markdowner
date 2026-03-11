@@ -16,6 +16,25 @@ cd markdowner
 go build .
 ```
 
+### Docker
+
+A Docker image supporting both `amd64` and `arm64` is published to GHCR
+regularly.
+
+```sh
+docker run --rm -v "$PWD/output:/data" ghcr.io/mbrt/markdowner \
+  url https://example.com/article
+```
+
+The container writes to `/data` by default, so mount your output directory
+there.
+
+To build locally:
+
+```sh
+make build-docker
+```
+
 ## Usage
 
 ### Convert a single URL
