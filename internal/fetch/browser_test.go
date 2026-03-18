@@ -38,7 +38,7 @@ func TestHtmlWithBrowser_FetchesHTML(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	html, err := htmlWithBrowser(ctx, srv.URL)
+	html, err := htmlFromCloudflare(ctx, srv.URL)
 	require.NoError(t, err)
 	assert.Contains(t, html, "Test Page")
 }

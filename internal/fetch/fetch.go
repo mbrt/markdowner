@@ -96,6 +96,9 @@ func (c Client) HTML(ctx context.Context, pageURL string) (string, error) {
 }
 
 func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
+	if isXArticleURL(pageURL) {
+		return htmlFromXArticle(ctx, pageURL)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return "", err
@@ -118,7 +121,7 @@ func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden && resp.Header.Get("cf-mitigated") == "challenge" {
-		return htmlWithBrowser(ctx, pageURL)
+		return htmlFromCloudflare(ctx, pageURL)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
