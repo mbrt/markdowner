@@ -7,7 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
+
+	ahocorasick "github.com/petar-dambovaliev/aho-corasick"
 )
 
 // Stats holds summary information about a gc run.
@@ -27,21 +28,27 @@ func Run(root, storeDir string, dryRun bool) (Stats, error) {
 		return Stats{}, fmt.Errorf("resolving root: %w", err)
 	}
 
-	referenced, err := collectReferencedImages(root)
+	w, err := walkRoot(root)
 	if err != nil {
 		return Stats{}, err
 	}
 
-	existing, err := collectImgFiles(root)
-	if err != nil {
-		return Stats{}, err
+	paths := make([]string, 0, len(w.imgFiles))
+	for p := range w.imgFiles {
+		paths = append(paths, p)
+	}
+	tracker := newImageTracker(paths)
+
+	for _, mdPath := range w.mdPaths {
+		content, err := os.ReadFile(mdPath)
+		if err != nil {
+			return Stats{}, fmt.Errorf("reading %q: %w", mdPath, err)
+		}
+		tracker.ScanMarkdown(string(content))
 	}
 
 	var stats Stats
-	for path, info := range existing {
-		if referenced[path] {
-			continue
-		}
+	for _, path := range tracker.Unvisited() {
 		if dryRun {
 			slog.Info("[dry-run] would delete", "path", path)
 		} else {
@@ -51,7 +58,7 @@ func Run(root, storeDir string, dryRun bool) (Stats, error) {
 			slog.Info("deleted", "path", path)
 		}
 		stats.DeletedFiles++
-		stats.FreedBytes += info.size
+		stats.FreedBytes += w.imgFiles[path].size
 	}
 
 	if storeDir != "" {
@@ -76,70 +83,106 @@ type imageInfo struct {
 	size int64
 }
 
-// imageRefRe matches Markdown image links of the form ![alt](img/filename).
-var imageRefRe = regexp.MustCompile(`!\[[^\]]*\]\((img/[^)\s]+)`)
-
-// collectReferencedImages walks all *.md files under root and returns the set
-// of absolute paths of image files they reference via img/ links.
-func collectReferencedImages(root string) (map[string]bool, error) {
-	refs := make(map[string]bool)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || filepath.Ext(path) != ".md" {
-			return nil
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading %q: %w", path, err)
-		}
-		dir := filepath.Dir(path)
-		for _, imgPath := range extractImageRefs(string(content)) {
-			refs[filepath.Join(dir, imgPath)] = true
-		}
-		return nil
-	})
-	return refs, err
+// imageTracker tracks which image files are referenced by markdown content.
+// It is initialized with image file paths and then fed markdown content one
+// file at a time via ScanMarkdown. Unreferenced files are returned by
+// Unvisited.
+//
+// Internally it uses an Aho-Corasick automaton to match all basenames in a
+// single pass over each markdown file, giving O(content_length) per file
+// instead of O(num_images * content_length).
+type imageTracker struct {
+	byName  map[string][]string // basename -> []abspath
+	visited map[string]bool     // abspath -> true
+	ac      *ahocorasick.AhoCorasick
 }
 
-// extractImageRefs returns the img/-relative paths referenced in md.
-func extractImageRefs(md string) []string {
-	matches := imageRefRe.FindAllStringSubmatch(md, -1)
-	var refs []string
-	for _, m := range matches {
-		refs = append(refs, m[1])
+func newImageTracker(paths []string) *imageTracker {
+	byName := make(map[string][]string)
+	for _, p := range paths {
+		name := filepath.Base(p)
+		byName[name] = append(byName[name], p)
 	}
-	return refs
+
+	names := make([]string, 0, len(byName))
+	for n := range byName {
+		names = append(names, n)
+	}
+	builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
+		DFA: false,
+	})
+	ac := builder.Build(names)
+
+	return &imageTracker{
+		byName:  byName,
+		visited: make(map[string]bool),
+		ac:      &ac,
+	}
 }
 
-// collectImgFiles walks root and returns all files inside img/ subdirectories,
-// keyed by their absolute path. For symlinks, size reflects the target file.
-func collectImgFiles(root string) (map[string]imageInfo, error) {
-	files := make(map[string]imageInfo)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+// ScanMarkdown marks any tracked image whose basename appears in content as
+// visited.
+func (t *imageTracker) ScanMarkdown(content string) {
+	for _, match := range t.ac.FindAll(content) {
+		name := content[match.Start():match.End()]
+		for _, p := range t.byName[name] {
+			t.visited[p] = true
 		}
-		if d.IsDir() || filepath.Base(filepath.Dir(path)) != "img" {
-			return nil
-		}
-		lstat, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("stat %q: %w", path, err)
-		}
-		size := lstat.Size()
-		// For symlinks, report the target's size so FreedBytes reflects
-		// the store data that would be freed when the store is cleaned.
-		if lstat.Mode()&os.ModeSymlink != 0 {
-			if stat, err := os.Stat(path); err == nil {
-				size = stat.Size()
+	}
+}
+
+// Unvisited returns the absolute paths of image files that were never matched
+// by any ScanMarkdown call.
+func (t *imageTracker) Unvisited() []string {
+	var result []string
+	for _, paths := range t.byName {
+		for _, p := range paths {
+			if !t.visited[p] {
+				result = append(result, p)
 			}
 		}
-		files[path] = imageInfo{size: size}
+	}
+	return result
+}
+
+// walkResult holds data collected during a single pass over the root tree.
+type walkResult struct {
+	imgFiles map[string]imageInfo // img/ files keyed by absolute path
+	mdPaths  []string             // paths to *.md files
+}
+
+// walkRoot performs a single pass over the root tree, collecting both image
+// files (inside img/ directories) and markdown file paths.
+func walkRoot(root string) (walkResult, error) {
+	var res walkResult
+	res.imgFiles = make(map[string]imageInfo)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Base(filepath.Dir(path)) == "img" {
+			lstat, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("stat %q: %w", path, err)
+			}
+			size := lstat.Size()
+			// For symlinks, report the target's size so FreedBytes
+			// reflects the store data that would be freed.
+			if lstat.Mode()&os.ModeSymlink != 0 {
+				if stat, err := os.Stat(path); err == nil {
+					size = stat.Size()
+				}
+			}
+			res.imgFiles[path] = imageInfo{size: size}
+		} else if filepath.Ext(path) == ".md" {
+			res.mdPaths = append(res.mdPaths, path)
+		}
 		return nil
 	})
-	return files, err
+	return res, err
 }
 
 // cleanStore removes store files that are no longer referenced by any symlink
