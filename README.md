@@ -54,9 +54,37 @@ Fetches the page, extracts the article content (via readability), converts it to
 | `--date` | (from page) | Override article date (`YYYY-MM-DD` or RFC3339) |
 | `--source` | (none) | Set the `source` field in the output frontmatter |
 | `--tags` | (none) | Add tags to the output (repeatable: `--tags foo --tags bar`) |
-| `--timeout` | `2m` | Per-URL timeout |
 
 `--title`, `--author`, and `--date` cannot be used when multiple URLs are given.
+
+### Convert local HTML files
+
+```sh
+markdowner html article.html --out-dir ./output
+```
+
+Reads the local HTML file, extracts the article content (via readability), converts it to Markdown, and writes `./output/<title-slug>.md`. Multiple files can be given and are processed sequentially.
+
+```sh
+# Read from stdin
+cat article.html | markdowner html --out-dir ./output --url https://example.com/article
+```
+
+When no file arguments are given, HTML is read from stdin. Use `--url` to set the base URL for resolving relative links and the `url` frontmatter field.
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--url` | `file://<path>` for files, empty for stdin | Base URL for relative links and the `url` frontmatter field |
+| `--title` | (from page) | Override article title |
+| `--author` | (from page) | Override article author |
+| `--date` | (from page) | Override article date (`YYYY-MM-DD` or RFC3339) |
+| `--saved` | (now) | Override saved date in RFC3339 or YYYY-MM-DD |
+| `--source` | (none) | Set the `source` field in the output frontmatter |
+| `--tags` | (none) | Add tags to the output (repeatable: `--tags foo --tags bar`) |
+
+`--title`, `--author`, and `--date` cannot be used when multiple files are given.
 
 ### Convert Instapaper articles
 
@@ -74,7 +102,7 @@ Fetches all articles from your Instapaper account (unread + archive folders), op
 
 ## Global flags
 
-These flags apply to both `url` and `instapaper` subcommands:
+These flags apply to all subcommands (`url`, `html`, `instapaper`):
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -83,6 +111,7 @@ These flags apply to both `url` and `instapaper` subcommands:
 | `--download-images` | `false` | Download external images and rewrite references to local `img/<hash>.<ext>` paths |
 | `--image-store` | (none) | Shared image store directory (see below) |
 | `--max-image-size` | (none) | Maximum image size before re-encoding as JPEG (e.g. `500KB`, `2MB`) |
+| `--timeout` | `10s` | Per-item timeout |
 | `-j` / `--parallel` | `4` | Number of parallel fetches |
 
 ### Image store (deduplication)

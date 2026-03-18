@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -28,6 +29,7 @@ var (
 	maxImageSize      string
 	maxImageSizeBytes int64
 	ignoreFailures    bool
+	timeout           time.Duration
 )
 
 var writer output.Writer
@@ -40,6 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
 	rootCmd.PersistentFlags().StringVar(&maxImageSize, "max-image-size", "", `max size for downloaded images (e.g. 500KB, 2MB); oversized images are converted to JPEG`)
 	rootCmd.PersistentFlags().BoolVar(&ignoreFailures, "ignore-failures", false, "on fetch failure, write a stub file with frontmatter only instead of skipping")
+	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 10*time.Second, "per-item timeout")
 }
 
 func initWriter(*cobra.Command, []string) error {

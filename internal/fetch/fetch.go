@@ -217,7 +217,7 @@ func (f Fetcher) FetchURLs(ctx context.Context, urls []string) <-chan output.Res
 					}
 					err = fmt.Errorf("fetching %q: %w", pageURL, err)
 				}
-				f.Overrides.apply(&doc)
+				f.Overrides.Apply(&doc)
 				ch <- output.Result{Doc: doc, Err: err}
 				return nil
 			})
@@ -237,7 +237,8 @@ func (f *Fetcher) setDefaults() {
 	}
 }
 
-func (o Overrides) apply(doc *output.Doc) {
+// Apply applies non-zero override fields to doc's Frontmatter.
+func (o Overrides) Apply(doc *output.Doc) {
 	if o.Title != "" {
 		doc.Frontmatter.Title = o.Title
 	}

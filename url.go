@@ -19,18 +19,16 @@ var urlCmd = &cobra.Command{
 }
 
 var (
-	urlTimeout time.Duration
-	urlTitle   string
-	urlAuthor  string
-	urlDate    string
-	urlSaved   string
-	urlSource  string
-	urlTags    []string
+	urlTitle  string
+	urlAuthor string
+	urlDate   string
+	urlSaved  string
+	urlSource string
+	urlTags   []string
 )
 
 func init() {
 	rootCmd.AddCommand(urlCmd)
-	urlCmd.Flags().DurationVar(&urlTimeout, "timeout", 10*time.Second, "per-URL timeout")
 	urlCmd.Flags().StringVar(&urlTitle, "title", "", "override article title (single URL only)")
 	urlCmd.Flags().StringVar(&urlAuthor, "author", "", "override article author (single URL only)")
 	urlCmd.Flags().StringVar(&urlDate, "date", "", "override article date in RFC3339 or YYYY-MM-DD (single URL only)")
@@ -65,7 +63,7 @@ func runURL(cmd *cobra.Command, args []string) {
 
 	fetcher := fetch.Fetcher{
 		Parallel:       parallel,
-		Timeout:        urlTimeout,
+		Timeout:        timeout,
 		DownloadImages: downloadImages,
 		MaxImageSize:   maxImageSizeBytes,
 		Overrides: fetch.Overrides{

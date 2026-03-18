@@ -101,7 +101,7 @@ func TestOverridesApply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.overrides.apply(&tt.doc)
+			tt.overrides.Apply(&tt.doc)
 			assert.Equal(t, tt.want, tt.doc.Frontmatter)
 		})
 	}
