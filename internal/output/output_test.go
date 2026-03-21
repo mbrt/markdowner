@@ -418,3 +418,185 @@ func TestWriteDocs_IgnoreFailures_False_NoStub(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
+
+func TestIsBodyEmpty(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "empty body",
+			content: "---\ntitle: Test\n---\n\n",
+			want:    true,
+		},
+		{
+			name:    "whitespace-only body",
+			content: "---\ntitle: Test\n---\n\n   \n\t\n",
+			want:    true,
+		},
+		{
+			name:    "non-empty body",
+			content: "---\ntitle: Test\n---\n\n# Hello\n\nSome content.",
+			want:    false,
+		},
+		{
+			name:    "no frontmatter delimiters",
+			content: "just some text",
+			want:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "test.md")
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), 0o644))
+			got, err := isBodyEmpty(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseOverwriteMode(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    OverwriteMode
+		wantErr bool
+	}{
+		{"all", OverwriteAll, false},
+		{"md", OverwriteMD, false},
+		{"empty", OverwriteEmpty, false},
+		{"none", OverwriteNone, false},
+		{"invalid", "", true},
+		{"", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseOverwriteMode(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestWriteDoc_OverwriteModes(t *testing.T) {
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	baseFM := Frontmatter{
+		Title: "My Article",
+		URL:   "https://example.com/article",
+		Saved: saved,
+	}
+
+	makeDoc := func(body string) Doc {
+		return Doc{
+			Frontmatter: baseFM,
+			Markdown:    body,
+			Images:      map[string][]byte{"img/pic.png": []byte("newimage")},
+		}
+	}
+
+	// existingBody is the content we pre-write as the "existing" file.
+	existingBody := "# Old\n\nExisting content."
+	existingFile := func(dir string) string {
+		content := "---\ntitle: My Article\nurl: https://example.com/article\nsaved: 2024-06-01T10:00:00Z\n---\n\n" + existingBody
+		path := filepath.Join(dir, "my-article.md")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+		return path
+	}
+	existingEmptyFile := func(dir string) string {
+		content := "---\ntitle: My Article\nurl: https://example.com/article\nsaved: 2024-06-01T10:00:00Z\n---\n\n"
+		path := filepath.Join(dir, "my-article.md")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+		return path
+	}
+
+	t.Run("none_skips_existing_md", func(t *testing.T) {
+		dir := t.TempDir()
+		path := existingFile(dir)
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteNone
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.Empty(t, got, "should return empty path when skipped")
+		content, _ := os.ReadFile(path)
+		assert.Contains(t, string(content), existingBody, "existing file should be unchanged")
+	})
+
+	t.Run("none_writes_new_md", func(t *testing.T) {
+		dir := t.TempDir()
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteNone
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.NotEmpty(t, got, "should return path when file is new")
+	})
+
+	t.Run("all_overwrites_md", func(t *testing.T) {
+		dir := t.TempDir()
+		existingFile(dir)
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteAll
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.NotEmpty(t, got)
+		content, _ := os.ReadFile(got)
+		assert.Contains(t, string(content), "# New content")
+		assert.NotContains(t, string(content), existingBody)
+	})
+
+	t.Run("all_overwrites_image", func(t *testing.T) {
+		dir := t.TempDir()
+		imgPath := filepath.Join(dir, "img", "pic.png")
+		require.NoError(t, os.MkdirAll(filepath.Dir(imgPath), 0o755))
+		require.NoError(t, os.WriteFile(imgPath, []byte("oldimage"), 0o644))
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteAll
+		_, err := w.WriteDoc(makeDoc("body"))
+		require.NoError(t, err)
+		data, _ := os.ReadFile(imgPath)
+		assert.Equal(t, []byte("newimage"), data, "image should be overwritten with all mode")
+	})
+
+	t.Run("md_overwrites_md_preserves_image", func(t *testing.T) {
+		dir := t.TempDir()
+		existingFile(dir)
+		imgPath := filepath.Join(dir, "img", "pic.png")
+		require.NoError(t, os.MkdirAll(filepath.Dir(imgPath), 0o755))
+		require.NoError(t, os.WriteFile(imgPath, []byte("oldimage"), 0o644))
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteMD
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.NotEmpty(t, got)
+		content, _ := os.ReadFile(got)
+		assert.Contains(t, string(content), "# New content", "md should be overwritten")
+		data, _ := os.ReadFile(imgPath)
+		assert.Equal(t, []byte("oldimage"), data, "image should be preserved with md mode")
+	})
+
+	t.Run("empty_overwrites_empty_md", func(t *testing.T) {
+		dir := t.TempDir()
+		existingEmptyFile(dir)
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteEmpty
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.NotEmpty(t, got, "should write when existing file has empty body")
+		content, _ := os.ReadFile(got)
+		assert.Contains(t, string(content), "# New content")
+	})
+
+	t.Run("empty_skips_nonempty_md", func(t *testing.T) {
+		dir := t.TempDir()
+		existingFile(dir)
+		w := NewWriter(dir, ModeFlat, "")
+		w.Overwrite = OverwriteEmpty
+		got, err := w.WriteDoc(makeDoc("# New content"))
+		require.NoError(t, err)
+		assert.Empty(t, got, "should skip when existing file has content")
+	})
+}

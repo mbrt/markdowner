@@ -26,6 +26,31 @@ const (
 	ModeWeek Mode = "week"
 )
 
+// OverwriteMode controls behavior when a target file already exists.
+type OverwriteMode string
+
+const (
+	// OverwriteAll overwrites both markdown and image files unconditionally.
+	OverwriteAll OverwriteMode = "all"
+	// OverwriteMD overwrites the markdown file but preserves existing images.
+	OverwriteMD OverwriteMode = "md"
+	// OverwriteEmpty overwrites the markdown file only when its body is empty
+	// (frontmatter only, no content). Images are always preserved.
+	OverwriteEmpty OverwriteMode = "empty"
+	// OverwriteNone skips writing when the target file already exists.
+	OverwriteNone OverwriteMode = "none"
+)
+
+// ParseOverwriteMode validates and returns an OverwriteMode from a string.
+func ParseOverwriteMode(s string) (OverwriteMode, error) {
+	switch OverwriteMode(s) {
+	case OverwriteAll, OverwriteMD, OverwriteEmpty, OverwriteNone:
+		return OverwriteMode(s), nil
+	default:
+		return "", fmt.Errorf("invalid --overwrite %q: must be one of all, md, empty, none", s)
+	}
+}
+
 // Frontmatter holds the metadata written at the top of each Markdown file.
 type Frontmatter struct {
 	Title  string     `yaml:"title"`
@@ -56,6 +81,9 @@ type Writer struct {
 	// partial Doc metadata. The stub is skipped when the target file already
 	// exists.
 	IgnoreFailures bool
+	// Overwrite controls how existing output files are handled.
+	// Defaults to OverwriteNone (skip if exists).
+	Overwrite OverwriteMode
 }
 
 // NewWriter creates a Writer that writes to outDir using the given mode.
@@ -63,7 +91,12 @@ type Writer struct {
 // directory with a two-character subdirectory prefix for deduplication, and
 // each article's img/ directory contains relative symlinks into that store.
 func NewWriter(outDir string, mode Mode, imageStoreDir string) Writer {
-	return Writer{outDir: outDir, mode: mode, imageStoreDir: imageStoreDir}
+	return Writer{
+		outDir:        outDir,
+		mode:          mode,
+		imageStoreDir: imageStoreDir,
+		Overwrite:     OverwriteNone,
+	}
 }
 
 // Result holds either a successfully converted doc or an error.
@@ -74,13 +107,14 @@ type Result struct {
 
 // WriteDoc writes a Markdown file with YAML frontmatter, and any image blobs,
 // to the appropriate subdirectory under the configured output directory.
-// It returns the path of the written Markdown file.
+// It returns the path of the written Markdown file, or an empty string when
+// the file was skipped due to the configured Overwrite policy.
 func (w Writer) WriteDoc(doc Doc) (string, error) {
 	dir := w.outDir
 	if w.mode == ModeWeek {
 		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
 	}
-	return writeFile(dir, w.imageStoreDir, doc)
+	return writeFile(dir, w.imageStoreDir, doc, w.Overwrite)
 }
 
 // WriteDocs consumes results from a channel, writes each successful doc to
@@ -102,6 +136,10 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 		if err != nil {
 			slog.Warn("writing article", "title", res.Doc.Frontmatter.Title, "err", err)
 			failed++
+			continue
+		}
+		if path == "" {
+			slog.Info("skipped (file exists)", "title", res.Doc.Frontmatter.Title)
 			continue
 		}
 		slog.Info("written", "path", path)
@@ -128,7 +166,7 @@ func (w Writer) WriteStub(doc Doc) error {
 		return nil
 	}
 	stub := Doc{Frontmatter: doc.Frontmatter}
-	path, err := writeFile(dir, "", stub)
+	path, err := writeFile(dir, "", stub, OverwriteAll)
 	if err != nil {
 		return err
 	}
@@ -142,10 +180,9 @@ func (w Writer) WriteStub(doc Doc) error {
 // relPath is of the form "img/<hash><ext>" as produced by the images plugin.
 // The store places the file at <storeDir>/<hash[0:2]>/<hash[2:]><ext>, using
 // the first two characters of the filename as a subdirectory to avoid large
-// flat directories. Both the store write and the symlink creation are skipped
-// if the target already exists, enabling safe deduplication and idempotent
-// re-runs.
-func writeImageToStore(docDir, storeDir, relPath string, data []byte) error {
+// flat directories. The store write is skipped when overwrite is false and
+// the target already exists. The symlink creation is always idempotent.
+func writeImageToStore(docDir, storeDir, relPath string, data []byte, overwrite bool) error {
 	// relPath = "img/<hash><ext>", e.g. "img/0a1b2c….png"
 	name := strings.TrimPrefix(relPath, "img/")
 	if len(name) < 2 {
@@ -160,7 +197,7 @@ func writeImageToStore(docDir, storeDir, relPath string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
 		return fmt.Errorf("creating image store directory: %w", err)
 	}
-	if _, err := os.Stat(storePath); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(storePath); errors.Is(err, os.ErrNotExist) || overwrite {
 		if err := os.WriteFile(storePath, data, 0o644); err != nil {
 			return fmt.Errorf("writing image to store %q: %w", storePath, err)
 		}
@@ -199,7 +236,62 @@ func weekSubDir(baseDir string, t time.Time) string {
 	return filepath.Join(baseDir, fmt.Sprintf("%04d", year), fmt.Sprintf("w%02d", week))
 }
 
-func writeFile(outDir string, imageStoreDir string, doc Doc) (string, error) {
+// isBodyEmpty reports whether the markdown file at path has an empty body
+// (i.e., contains only YAML frontmatter with no content after the closing
+// delimiter). Files that cannot be parsed as frontmatter are treated as empty.
+func isBodyEmpty(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	// Format: "---\n<yaml>---\n\n<body>"
+	parts := strings.SplitN(string(data), "---\n", 3)
+	if len(parts) < 3 {
+		return true, nil
+	}
+	return strings.TrimSpace(parts[2]) == "", nil
+}
+
+// shouldSkipMD reports whether writing to path should be skipped given the
+// overwrite mode. It returns true when the file exists and the mode does not
+// allow overwriting it.
+func shouldSkipMD(path string, overwrite OverwriteMode) (bool, error) {
+	switch overwrite {
+	case OverwriteNone:
+		if _, err := os.Stat(path); err == nil {
+			return true, nil
+		}
+	case OverwriteEmpty:
+		if _, err := os.Stat(path); err == nil {
+			empty, err := isBodyEmpty(path)
+			if err != nil {
+				return true, nil
+			}
+			return !empty, nil
+		}
+	}
+	return false, nil
+}
+
+// writeImage writes a single image blob to dest, honoring the overwrite flag.
+func writeImage(dest string, data []byte, overwrite bool) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("creating image directory: %w", err)
+	}
+	// Skip writing the image if the target already exists, to avoid
+	// churn on slightly different image data across runs.
+	if !overwrite {
+		if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return fmt.Errorf("writing image %q: %w", dest, err)
+	}
+	return nil
+}
+
+func writeFile(outDir string, imageStoreDir string, doc Doc, overwrite OverwriteMode) (string, error) {
 	filename := slugify(targetName(doc))
 	fm := doc.Frontmatter
 	body := doc.Markdown
@@ -217,25 +309,25 @@ func writeFile(outDir string, imageStoreDir string, doc Doc) (string, error) {
 	}
 	content := "---\n" + string(fmBytes) + "---\n\n" + body
 	path := filepath.Join(outDir, filename+".md")
+
+	skip, err := shouldSkipMD(path, overwrite)
+	if err != nil || skip {
+		return "", err
+	}
+
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("writing file %q: %w", path, err)
 	}
+	overwriteImages := overwrite == OverwriteAll
 	for relPath, data := range doc.Images {
 		if imageStoreDir != "" {
-			if err := writeImageToStore(outDir, imageStoreDir, relPath, data); err != nil {
+			if err := writeImageToStore(outDir, imageStoreDir, relPath, data, overwriteImages); err != nil {
 				return "", err
 			}
 		} else {
 			dest := filepath.Join(outDir, relPath)
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-				return "", fmt.Errorf("creating image directory: %w", err)
-			}
-			// Skip writing the image if the target already exists, to avoid
-			// churn on slightly different image data across runs.
-			if _, err := os.Stat(dest); errors.Is(err, os.ErrNotExist) {
-				if err := os.WriteFile(dest, data, 0o644); err != nil {
-					return "", fmt.Errorf("writing image %q: %w", dest, err)
-				}
+			if err := writeImage(dest, data, overwriteImages); err != nil {
+				return "", err
 			}
 		}
 	}

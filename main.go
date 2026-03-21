@@ -29,6 +29,7 @@ var (
 	maxImageSize      string
 	maxImageSizeBytes int64
 	ignoreFailures    bool
+	overwriteFlag     string
 	timeout           time.Duration
 )
 
@@ -43,6 +44,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&maxImageSize, "max-image-size", "", `max size for downloaded images (e.g. 500KB, 2MB); oversized images are converted to JPEG`)
 	rootCmd.PersistentFlags().BoolVar(&ignoreFailures, "ignore-failures", false, "on fetch failure, write a stub file with frontmatter only instead of skipping")
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 10*time.Second, "per-item timeout")
+	rootCmd.PersistentFlags().StringVar(&overwriteFlag, "overwrite", string(output.OverwriteNone), `overwrite behavior when output file exists: "all" (markdown+images), "md" (markdown only), "empty" (markdown only if body is empty), "none" (skip)`)
+	// When --overwrite is given without a value, default to "all".
+	rootCmd.PersistentFlags().Lookup("overwrite").NoOptDefVal = string(output.OverwriteAll)
 }
 
 func initWriter(*cobra.Command, []string) error {
@@ -50,8 +54,13 @@ func initWriter(*cobra.Command, []string) error {
 	if mode != output.ModeFlat && mode != output.ModeWeek {
 		return fmt.Errorf("invalid --out-mode %q: must be %q or %q", outMode, output.ModeFlat, output.ModeWeek)
 	}
+	overwrite, err := output.ParseOverwriteMode(overwriteFlag)
+	if err != nil {
+		return err
+	}
 	writer = output.NewWriter(outDir, mode, imageStoreDir)
 	writer.IgnoreFailures = ignoreFailures
+	writer.Overwrite = overwrite
 
 	if maxImageSize != "" {
 		n, err := images.ParseSize(maxImageSize)
