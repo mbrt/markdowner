@@ -23,7 +23,7 @@ regularly.
 
 ```sh
 docker run --rm -v "$PWD/output:/data" ghcr.io/mbrt/markdowner \
-  url https://example.com/article
+  url https://example.com/article --out-mode flat
 ```
 
 The container writes to `/data` by default, so mount your output directory
@@ -40,10 +40,10 @@ make build-docker
 ### Convert a single URL
 
 ```sh
-markdowner url https://example.com/article --out-dir ./output
+markdowner url https://example.com/article
 ```
 
-Fetches the page, extracts the article content (via readability), converts it to Markdown, and writes `./output/<title-slug>.md`.
+Fetches the page, extracts the article content (via readability), converts it to Markdown, and writes to stdout. Use `--out-mode flat --out-dir ./output` to write to a file instead.
 
 **Flags:**
 
@@ -60,14 +60,19 @@ Fetches the page, extracts the article content (via readability), converts it to
 ### Convert local HTML files
 
 ```sh
-markdowner html article.html --out-dir ./output
+markdowner html article.html
 ```
 
-Reads the local HTML file, extracts the article content (via readability), converts it to Markdown, and writes `./output/<title-slug>.md`. Multiple files can be given and are processed sequentially.
+Reads the local HTML file, extracts the article content (via readability), converts it to Markdown, and writes to stdout. Multiple files can be given and are processed sequentially.
+
+```sh
+# Write to files instead
+markdowner html article.html --out-mode flat --out-dir ./output
+```
 
 ```sh
 # Read from stdin
-cat article.html | markdowner html --out-dir ./output --url https://example.com/article
+cat article.html | markdowner html --url https://example.com/article
 ```
 
 When no file arguments are given, HTML is read from stdin. Use `--url` to set the base URL for resolving relative links and the `url` frontmatter field.
@@ -89,7 +94,7 @@ When no file arguments are given, HTML is read from stdin. Use `--url` to set th
 ### Convert Instapaper articles
 
 ```sh
-markdowner instapaper --out-dir ./output --since 2024-01-01
+markdowner instapaper --out-mode flat --out-dir ./output --since 2024-01-01
 ```
 
 Fetches all articles from your Instapaper account (unread + archive folders), optionally filtered by date, and writes one `.md` file per article.
@@ -106,13 +111,15 @@ These flags apply to all subcommands (`url`, `html`, `instapaper`):
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--out-dir` | `.` | Directory to write Markdown files |
-| `--out-mode` | `flat` | Output organization: `flat` (all files in one dir) or `week` (subdirs by ISO week, e.g. `2024/w12/`) |
-| `--download-images` | `false` | Download external images and rewrite references to local `img/<hash>.<ext>` paths |
-| `--image-store` | (none) | Shared image store directory (see below) |
-| `--max-image-size` | (none) | Maximum image size before re-encoding as JPEG (e.g. `500KB`, `2MB`) |
+| `--out-mode` | `stdout` | Output mode: `stdout` (print to standard output), `flat` (all files in one dir), or `week` (subdirs by ISO week, e.g. `2024/w12/`) |
+| `--out-dir` | `.` | Directory to write Markdown files (ignored in `stdout` mode) |
+| `--download-images` | `false` | Download external images and rewrite references to local `img/<hash>.<ext>` paths (not supported in `stdout` mode) |
+| `--image-store` | (none) | Shared image store directory (see below; not supported in `stdout` mode) |
+| `--max-image-size` | (none) | Maximum image size before re-encoding as JPEG (e.g. `500KB`, `2MB`; not supported in `stdout` mode) |
 | `--timeout` | `10s` | Per-item timeout |
 | `-j` / `--parallel` | `4` | Number of parallel fetches |
+
+> **Note:** In `stdout` mode, image references are kept as their original URLs (no local file rewriting). The flags `--out-dir`, `--overwrite`, `--download-images`, `--image-store`, and `--max-image-size` are rejected when `--out-mode stdout` is used explicitly alongside them.
 
 ### Image store (deduplication)
 

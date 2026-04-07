@@ -4,6 +4,7 @@ package output
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -20,7 +21,9 @@ import (
 type Mode string
 
 const (
-	// ModeFlat writes all files directly into the output directory (default).
+	// ModeStdout writes all output to standard output (default).
+	ModeStdout Mode = "stdout"
+	// ModeFlat writes all files directly into the output directory.
 	ModeFlat Mode = "flat"
 	// ModeWeek organizes files into YYYY/wWW subdirectories based on saved time.
 	ModeWeek Mode = "week"
@@ -73,29 +76,39 @@ type Doc struct {
 
 // Writer writes Docs to the filesystem according to its configuration.
 type Writer struct {
-	outDir        string
-	mode          Mode
-	imageStoreDir string
 	// IgnoreFailures, when true, causes WriteDocs to write a stub file
 	// (frontmatter only, no body) for results that have an error but carry
 	// partial Doc metadata. The stub is skipped when the target file already
 	// exists.
 	IgnoreFailures bool
 	// Overwrite controls how existing output files are handled.
-	// Defaults to OverwriteNone (skip if exists).
+	// Defaults to OverwriteNone (skip if exists). Ignored in ModeStdout.
 	Overwrite OverwriteMode
+
+	outDir        string
+	mode          Mode
+	imageStoreDir string
+	out           io.Writer
 }
 
-// NewWriter creates a Writer that writes to outDir using the given mode.
+// NewWithDir creates a Writer that writes to outDir using the given mode.
 // When imageStoreDir is non-empty, downloaded images are stored in a shared
 // directory with a two-character subdirectory prefix for deduplication, and
 // each article's img/ directory contains relative symlinks into that store.
-func NewWriter(outDir string, mode Mode, imageStoreDir string) Writer {
+func NewWithDir(outDir string, mode Mode, imageStoreDir string) Writer {
 	return Writer{
 		outDir:        outDir,
 		mode:          mode,
 		imageStoreDir: imageStoreDir,
 		Overwrite:     OverwriteNone,
+	}
+}
+
+// NewWithWriter creates a Writer that writes to w in ModeStdout.
+func NewWithWriter(w io.Writer) Writer {
+	return Writer{
+		mode: ModeStdout,
+		out:  w,
 	}
 }
 
@@ -109,7 +122,11 @@ type Result struct {
 // to the appropriate subdirectory under the configured output directory.
 // It returns the path of the written Markdown file, or an empty string when
 // the file was skipped due to the configured Overwrite policy.
+// In ModeStdout, it writes to the configured io.Writer and returns an empty path.
 func (w Writer) WriteDoc(doc Doc) (string, error) {
+	if w.mode == ModeStdout {
+		return "", writeDocToWriter(w.out, doc)
+	}
 	dir := w.outDir
 	if w.mode == ModeWeek {
 		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
@@ -118,8 +135,8 @@ func (w Writer) WriteDoc(doc Doc) (string, error) {
 }
 
 // WriteDocs consumes results from a channel, writes each successful doc to
-// disk, and logs warnings for any errors. It returns the number of
-// successfully written docs and the number of failures.
+// disk (or stdout in ModeStdout), and logs warnings for any errors. It returns
+// the number of successfully written docs and the number of failures.
 func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 	for res := range results {
 		if res.Err != nil {
@@ -139,10 +156,13 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 			continue
 		}
 		if path == "" {
-			slog.Info("skipped (file exists)", "title", res.Doc.Frontmatter.Title)
-			continue
+			if w.mode != ModeStdout {
+				slog.Info("skipped (file exists)", "title", res.Doc.Frontmatter.Title)
+				continue
+			}
+		} else {
+			slog.Info("written", "path", path)
 		}
-		slog.Info("written", "path", path)
 		written++
 	}
 	return written, failed
@@ -150,8 +170,12 @@ func (w Writer) WriteDocs(results <-chan Result) (written, failed int) {
 
 // WriteStub writes a frontmatter-only Markdown file for doc. It is a no-op
 // (with an info log) when the target file already exists, so it never
-// overwrites existing content.
+// overwrites existing content. In ModeStdout, it writes the stub to the
+// configured io.Writer.
 func (w Writer) WriteStub(doc Doc) error {
+	if w.mode == ModeStdout {
+		return writeDocToWriter(w.out, Doc{Frontmatter: doc.Frontmatter})
+	}
 	dir := w.outDir
 	if w.mode == ModeWeek {
 		dir = weekSubDir(w.outDir, doc.Frontmatter.Saved)
@@ -172,6 +196,24 @@ func (w Writer) WriteStub(doc Doc) error {
 	}
 	slog.Info("written stub", "path", path)
 	return nil
+}
+
+// writeDocToWriter serializes doc as YAML frontmatter + markdown body and
+// writes it to w. It mirrors the on-disk format used by writeFile.
+func writeDocToWriter(w io.Writer, doc Doc) error {
+	fm := doc.Frontmatter
+	fm.Saved = fm.Saved.Truncate(time.Second)
+	if fm.Date != nil {
+		t := fm.Date.Truncate(time.Second)
+		fm.Date = &t
+	}
+	fmBytes, err := yaml.Marshal(fm)
+	if err != nil {
+		return fmt.Errorf("marshaling frontmatter: %w", err)
+	}
+	content := "---\n" + string(fmBytes) + "---\n\n" + doc.Markdown
+	_, err = fmt.Fprint(w, content)
+	return err
 }
 
 // writeImageToStore writes image data to the shared store and creates a

@@ -237,7 +237,7 @@ func TestRun_StoreFileKeptWhenOneArticleStillReferences(t *testing.T) {
 
 // fakeName generates a deterministic content-hashed image filename.
 func fakeName(i int) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("image-%d", i)))
+	h := sha256.Sum256(fmt.Appendf(nil, "image-%d", i))
 	return fmt.Sprintf("%x.png", h[:12])
 }
 

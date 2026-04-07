@@ -1,6 +1,7 @@
 package output
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestWriteDoc(t *testing.T) {
 		Frontmatter: fm,
 		Markdown:    body,
 	}
-	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(doc)
+	_, err := NewWithDir(dir, ModeFlat, "").WriteDoc(doc)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "test-article.md"))
@@ -80,7 +81,7 @@ func TestWriteDoc_NoTags(t *testing.T) {
 		Saved: time.Now(),
 	}
 
-	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	_, err := NewWithDir(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(dir, "no-tags.md"))
@@ -94,7 +95,7 @@ func TestWriteDoc_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(base, "sub", "dir")
 	fm := Frontmatter{Title: "X", URL: "https://x.com", Saved: time.Now()}
 
-	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: ""})
+	_, err := NewWithDir(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: ""})
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(dir, "x.md"))
 	assert.NoError(t, err)
@@ -111,7 +112,7 @@ func TestWriteDoc_WritesImages(t *testing.T) {
 		},
 	}
 
-	_, err := NewWriter(dir, ModeFlat, "").WriteDoc(doc)
+	_, err := NewWithDir(dir, ModeFlat, "").WriteDoc(doc)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(dir, "img", "abc123.png"))
@@ -123,7 +124,7 @@ func TestWriteDoc_EmptyTitleFallsBackToURL(t *testing.T) {
 	dir := t.TempDir()
 	fm := Frontmatter{Title: "", URL: "https://example.com/some/page", Saved: time.Now()}
 
-	path, err := NewWriter(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	path, err := NewWithDir(dir, ModeFlat, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "example-com-some-page.md"), path)
 }
@@ -168,7 +169,7 @@ func TestWriteDoc_ModeWeek(t *testing.T) {
 	saved := time.Date(2024, 3, 18, 0, 0, 0, 0, time.UTC) // ISO week 12
 	fm := Frontmatter{Title: "Week Test", URL: "https://example.com/w", Saved: saved}
 
-	path, err := NewWriter(dir, ModeWeek, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
+	path, err := NewWithDir(dir, ModeWeek, "").WriteDoc(Doc{Frontmatter: fm, Markdown: "body"})
 	require.NoError(t, err)
 
 	expected := filepath.Join(dir, "2024", "w12", "week-test.md")
@@ -189,7 +190,7 @@ func TestWriteDoc_ImageStore_SubdirStructure(t *testing.T) {
 		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
 	}
 
-	_, err := NewWriter(outDir, ModeFlat, storeDir).WriteDoc(doc)
+	_, err := NewWithDir(outDir, ModeFlat, storeDir).WriteDoc(doc)
 	require.NoError(t, err)
 
 	// Image must be in store at <storeDir>/ab/cdef.png.
@@ -210,7 +211,7 @@ func TestWriteDoc_ImageStore_SymlinkCreated(t *testing.T) {
 		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
 	}
 
-	_, err := NewWriter(outDir, ModeFlat, storeDir).WriteDoc(doc)
+	_, err := NewWithDir(outDir, ModeFlat, storeDir).WriteDoc(doc)
 	require.NoError(t, err)
 
 	linkPath := filepath.Join(outDir, "img", "abcdef.png")
@@ -243,7 +244,7 @@ func TestWriteDoc_ImageStore_Deduplication(t *testing.T) {
 		Markdown:    "![pic](img/abcdef.png)",
 		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
 	}
-	w := NewWriter(outDir, ModeFlat, storeDir)
+	w := NewWithDir(outDir, ModeFlat, storeDir)
 
 	// Write the same document twice; both should succeed without error.
 	_, err := w.WriteDoc(doc)
@@ -269,7 +270,7 @@ func TestWriteDoc_ImageStore_WeekMode_RelativeSymlink(t *testing.T) {
 		Images:      map[string][]byte{"img/abcdef.png": []byte("imgdata")},
 	}
 
-	_, err := NewWriter(outDir, ModeWeek, storeDir).WriteDoc(doc)
+	_, err := NewWithDir(outDir, ModeWeek, storeDir).WriteDoc(doc)
 	require.NoError(t, err)
 
 	linkPath := filepath.Join(outDir, "2024", "w12", "img", "abcdef.png")
@@ -302,7 +303,7 @@ func TestWriteStub_WritesOnlyFrontmatter(t *testing.T) {
 		},
 	}
 
-	w := NewWriter(dir, ModeFlat, "")
+	w := NewWithDir(dir, ModeFlat, "")
 	err := w.WriteStub(doc)
 	require.NoError(t, err)
 
@@ -337,7 +338,7 @@ func TestWriteStub_SkipsExistingFile(t *testing.T) {
 	original := "original content"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
-	w := NewWriter(dir, ModeFlat, "")
+	w := NewWithDir(dir, ModeFlat, "")
 	err := w.WriteStub(doc)
 	require.NoError(t, err)
 
@@ -369,7 +370,7 @@ func TestWriteDocs_IgnoreFailures_WritesStub(t *testing.T) {
 	}
 	close(results)
 
-	w := NewWriter(dir, ModeFlat, "")
+	w := NewWithDir(dir, ModeFlat, "")
 	w.IgnoreFailures = true
 	written, failed := w.WriteDocs(results)
 
@@ -406,7 +407,7 @@ func TestWriteDocs_IgnoreFailures_False_NoStub(t *testing.T) {
 	}
 	close(results)
 
-	w := NewWriter(dir, ModeFlat, "")
+	w := NewWithDir(dir, ModeFlat, "")
 	// IgnoreFailures defaults to false.
 	written, failed := w.WriteDocs(results)
 
@@ -517,7 +518,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 	t.Run("none_skips_existing_md", func(t *testing.T) {
 		dir := t.TempDir()
 		path := existingFile(dir)
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteNone
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
@@ -528,7 +529,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 
 	t.Run("none_writes_new_md", func(t *testing.T) {
 		dir := t.TempDir()
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteNone
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
@@ -538,7 +539,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 	t.Run("all_overwrites_md", func(t *testing.T) {
 		dir := t.TempDir()
 		existingFile(dir)
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteAll
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
@@ -553,7 +554,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 		imgPath := filepath.Join(dir, "img", "pic.png")
 		require.NoError(t, os.MkdirAll(filepath.Dir(imgPath), 0o755))
 		require.NoError(t, os.WriteFile(imgPath, []byte("oldimage"), 0o644))
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteAll
 		_, err := w.WriteDoc(makeDoc("body"))
 		require.NoError(t, err)
@@ -567,7 +568,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 		imgPath := filepath.Join(dir, "img", "pic.png")
 		require.NoError(t, os.MkdirAll(filepath.Dir(imgPath), 0o755))
 		require.NoError(t, os.WriteFile(imgPath, []byte("oldimage"), 0o644))
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteMD
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
@@ -581,7 +582,7 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 	t.Run("empty_overwrites_empty_md", func(t *testing.T) {
 		dir := t.TempDir()
 		existingEmptyFile(dir)
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteEmpty
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
@@ -593,10 +594,97 @@ func TestWriteDoc_OverwriteModes(t *testing.T) {
 	t.Run("empty_skips_nonempty_md", func(t *testing.T) {
 		dir := t.TempDir()
 		existingFile(dir)
-		w := NewWriter(dir, ModeFlat, "")
+		w := NewWithDir(dir, ModeFlat, "")
 		w.Overwrite = OverwriteEmpty
 		got, err := w.WriteDoc(makeDoc("# New content"))
 		require.NoError(t, err)
 		assert.Empty(t, got, "should skip when existing file has content")
 	})
+}
+
+func TestWriteDoc_ModeStdout(t *testing.T) {
+	var buf bytes.Buffer
+	d := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
+	fm := Frontmatter{
+		Title: "Stdout Article",
+		URL:   "https://example.com/stdout",
+		Date:  &d,
+		Saved: time.Date(2024, 4, 1, 8, 0, 0, 0, time.UTC),
+		Tags:  []string{"go"},
+	}
+	doc := Doc{
+		Frontmatter: fm,
+		Markdown:    "# Hello\n\nContent here.",
+		// Images should not be written anywhere.
+		Images: map[string][]byte{"img/pic.png": []byte("imgdata")},
+	}
+
+	w := NewWithWriter(&buf)
+
+	path, err := w.WriteDoc(doc)
+	require.NoError(t, err)
+	assert.Empty(t, path, "stdout mode should return empty path")
+
+	out := buf.String()
+	assert.True(t, strings.HasPrefix(out, "---\n"), "output should start with frontmatter delimiter")
+	assert.Contains(t, out, "title: Stdout Article")
+	assert.Contains(t, out, "url: https://example.com/stdout")
+	assert.Contains(t, out, "date: 2024-03-01T12:00:00Z")
+	assert.Contains(t, out, "saved: 2024-04-01T08:00:00Z")
+	assert.Contains(t, out, "- go")
+	assert.Contains(t, out, "Content here.")
+	// No image file should be created anywhere.
+	assert.NotContains(t, out, "imgdata")
+}
+
+func TestWriteDocs_ModeStdout_CountsWritten(t *testing.T) {
+	var buf bytes.Buffer
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	results := make(chan Result, 2)
+	results <- Result{Doc: Doc{
+		Frontmatter: Frontmatter{Title: "Doc One", URL: "https://example.com/1", Saved: saved},
+		Markdown:    "body one",
+	}}
+	results <- Result{Doc: Doc{
+		Frontmatter: Frontmatter{Title: "Doc Two", URL: "https://example.com/2", Saved: saved},
+		Markdown:    "body two",
+	}}
+	close(results)
+
+	w := NewWithWriter(&buf)
+	written, failed := w.WriteDocs(results)
+
+	assert.Equal(t, 2, written)
+	assert.Equal(t, 0, failed)
+	out := buf.String()
+	assert.Contains(t, out, "Doc One")
+	assert.Contains(t, out, "body one")
+	assert.Contains(t, out, "Doc Two")
+	assert.Contains(t, out, "body two")
+}
+
+func TestWriteStub_ModeStdout(t *testing.T) {
+	var buf bytes.Buffer
+	saved := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	doc := Doc{
+		Frontmatter: Frontmatter{
+			Title: "Stub Stdout",
+			URL:   "https://example.com/stub",
+			Saved: saved,
+		},
+		Markdown: "should not appear",
+	}
+
+	w := NewWithWriter(&buf)
+	err := w.WriteStub(doc)
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "title: Stub Stdout")
+	assert.Contains(t, out, "url: https://example.com/stub")
+	// Stub must not include the markdown body.
+	parts := strings.SplitN(out, "---\n", 3)
+	require.Len(t, parts, 3, "expected opening ---, frontmatter, closing ---")
+	assert.Empty(t, strings.TrimSpace(parts[2]), "stub should have no markdown body")
 }

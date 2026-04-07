@@ -36,8 +36,8 @@ var (
 var writer output.Writer
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&outDir, "out-dir", ".", "output directory")
-	rootCmd.PersistentFlags().StringVar(&outMode, "out-mode", string(output.ModeFlat), `output organization mode ("flat" or "week")`)
+	rootCmd.PersistentFlags().StringVar(&outDir, "out-dir", ".", "output directory (ignored in stdout mode)")
+	rootCmd.PersistentFlags().StringVar(&outMode, "out-mode", string(output.ModeStdout), `output mode: "stdout" (default), "flat" (all files in one dir), or "week" (subdirs by ISO week)`)
 	rootCmd.PersistentFlags().BoolVar(&downloadImages, "download-images", false, "download external images and rewrite references to local paths")
 	rootCmd.PersistentFlags().StringVar(&imageStoreDir, "image-store", "", "shared image store directory to deduplicate downloaded images")
 	rootCmd.PersistentFlags().IntVarP(&parallel, "parallel", "j", 4, "number of parallel fetches")
@@ -49,16 +49,29 @@ func init() {
 	rootCmd.PersistentFlags().Lookup("overwrite").NoOptDefVal = string(output.OverwriteAll)
 }
 
-func initWriter(*cobra.Command, []string) error {
+func initWriter(cmd *cobra.Command, _ []string) error {
 	mode := output.Mode(outMode)
+
+	if mode == output.ModeStdout {
+		flags := cmd.Root().PersistentFlags()
+		for _, name := range []string{"out-dir", "overwrite", "image-store", "download-images", "max-image-size"} {
+			if flags.Changed(name) {
+				return fmt.Errorf("--%s cannot be used with --out-mode stdout", name)
+			}
+		}
+		writer = output.NewWithWriter(cmd.OutOrStdout())
+		writer.IgnoreFailures = ignoreFailures
+		return nil
+	}
+
 	if mode != output.ModeFlat && mode != output.ModeWeek {
-		return fmt.Errorf("invalid --out-mode %q: must be %q or %q", outMode, output.ModeFlat, output.ModeWeek)
+		return fmt.Errorf("invalid --out-mode %q: must be one of %q, %q, or %q", outMode, output.ModeStdout, output.ModeFlat, output.ModeWeek)
 	}
 	overwrite, err := output.ParseOverwriteMode(overwriteFlag)
 	if err != nil {
 		return err
 	}
-	writer = output.NewWriter(outDir, mode, imageStoreDir)
+	writer = output.NewWithDir(outDir, mode, imageStoreDir)
 	writer.IgnoreFailures = ignoreFailures
 	writer.Overwrite = overwrite
 
