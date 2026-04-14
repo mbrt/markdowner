@@ -99,6 +99,9 @@ func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
 	if isXArticleURL(pageURL) {
 		return htmlFromXArticle(ctx, pageURL)
 	}
+	if isXTweetURL(pageURL) {
+		return htmlFromXTweet(ctx, pageURL)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return "", err
