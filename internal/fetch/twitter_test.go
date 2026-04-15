@@ -12,6 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFirstNWords(t *testing.T) {
+	tests := []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{"one two three four five six", 5, "one two three four five"},
+		{"hello world", 5, "hello world"},
+		{"", 5, ""},
+		{"   spaced   out   words   ", 3, "spaced out words"},
+		{"single", 1, "single"},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.want, firstNWords(tc.s, tc.n))
+	}
+}
+
 func TestIsXArticleURL(t *testing.T) {
 	tests := []struct {
 		url  string
@@ -188,6 +205,8 @@ func TestTweetToHTML(t *testing.T) {
 	}
 
 	html := tweetToHTML(tweet)
+	// Title includes username and first words of the tweet.
+	assert.Contains(t, html, `<title>@testuser - Hello &lt;world&gt; &amp; friends</title>`)
 	// HTML entities are escaped.
 	assert.Contains(t, html, "Hello &lt;world&gt; &amp; friends")
 	assert.Contains(t, html, `content="Test &#34;User&#34; (@testuser)"`)

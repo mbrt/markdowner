@@ -136,7 +136,7 @@ type fxMediaItem struct {
 // can extract a title, author, and body from.
 func tweetToHTML(t fxTweet) string {
 	author := fmt.Sprintf("%s (@%s)", t.Author.Name, t.Author.ScreenName)
-	title := "@" + t.Author.ScreenName
+	title := "@" + t.Author.ScreenName + " - " + firstNWords(t.Text, 5)
 
 	// Escape text for HTML, then convert newlines to <br>.
 	body := html.EscapeString(t.Text)
@@ -220,4 +220,14 @@ func htmlFromXArticle(ctx context.Context, pageURL string) (string, error) {
 		nil,
 	)
 	return runBrowser(ctx, pageURL, xWait, xPatchTitle)
+}
+
+// firstNWords returns the first n whitespace-separated words of s, joined by
+// spaces. If s has fewer than n words, all words are returned.
+func firstNWords(s string, n int) string {
+	words := strings.Fields(s)
+	if len(words) > n {
+		words = words[:n]
+	}
+	return strings.Join(words, " ")
 }
