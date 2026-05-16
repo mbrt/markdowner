@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +103,13 @@ func htmlFromXTweet(ctx context.Context, pageURL string) (string, error) {
 		return "", fmt.Errorf("fxtwitter error %d: %s", fxResp.Code, fxResp.Message)
 	}
 
+	// When a tweet embeds an X Article, its text is empty and all content is
+	// in the article field. Convert the article content directly to HTML from
+	// the data already in the fxtwitter response.
+	if fxResp.Tweet.Article != nil {
+		return articleToHTML(fxResp.Tweet), nil
+	}
+
 	return tweetToHTML(fxResp.Tweet), nil
 }
 
@@ -112,10 +121,66 @@ type fxTweetResponse struct {
 }
 
 type fxTweet struct {
-	Text             string   `json:"text"`
-	CreatedTimestamp int64    `json:"created_timestamp"`
-	Author           fxAuthor `json:"author"`
-	Media            *fxMedia `json:"media"`
+	Text             string     `json:"text"`
+	CreatedTimestamp int64      `json:"created_timestamp"`
+	Author           fxAuthor   `json:"author"`
+	Media            *fxMedia   `json:"media"`
+	Article          *fxArticle `json:"article"`
+}
+
+// fxArticle holds the article data returned by the fxtwitter API when a tweet
+// embeds an X Article.
+type fxArticle struct {
+	ID      string     `json:"id"`
+	Title   string     `json:"title"`
+	Content *fxContent `json:"content"`
+}
+
+// fxContent is the Draft.js-like content of an X Article.
+type fxContent struct {
+	Blocks    []fxBlock       `json:"blocks"`
+	EntityMap []fxEntityEntry `json:"entityMap"`
+}
+
+// fxBlock is a single Draft.js content block.
+type fxBlock struct {
+	Type              string          `json:"type"`
+	Text              string          `json:"text"`
+	InlineStyleRanges []fxStyleRange  `json:"inlineStyleRanges"`
+	EntityRanges      []fxEntityRange `json:"entityRanges"`
+}
+
+// fxStyleRange describes a range of inline styling within a block's text.
+// Offsets are Unicode code-point indices, not byte offsets.
+type fxStyleRange struct {
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	Style  string `json:"style"`
+}
+
+// fxEntityRange describes a range of text that references an entity by key.
+// Offsets are Unicode code-point indices, not byte offsets.
+type fxEntityRange struct {
+	Offset int `json:"offset"`
+	Length int `json:"length"`
+	Key    int `json:"key"`
+}
+
+// fxEntityEntry is one element of the entityMap array.
+type fxEntityEntry struct {
+	Key   string        `json:"key"`
+	Value fxEntityValue `json:"value"`
+}
+
+// fxEntityValue holds the entity type and its associated data.
+type fxEntityValue struct {
+	Type string       `json:"type"`
+	Data fxEntityData `json:"data"`
+}
+
+// fxEntityData holds the URL of a LINK entity.
+type fxEntityData struct {
+	URL string `json:"url"`
 }
 
 type fxAuthor struct {
@@ -176,7 +241,211 @@ func tweetToHTML(t fxTweet) string {
 	)
 }
 
-// htmlFromXArticle fetches the HTML of an X (Twitter) article URL by running a
+// articleToHTML constructs an HTML document from a tweet that embeds an X
+// Article. The article content is provided in Draft.js block format by the
+// fxtwitter API and converted to HTML for the readability + markdown pipeline.
+func articleToHTML(t fxTweet) string {
+	article := t.Article
+	author := fmt.Sprintf("%s (@%s)", t.Author.Name, t.Author.ScreenName)
+	title := article.Title
+
+	// Build a map from entity key to URL for quick lookup.
+	entityURLs := map[int]string{}
+	if article.Content != nil {
+		for _, e := range article.Content.EntityMap {
+			if e.Value.Type == "LINK" {
+				k, err := strconv.Atoi(e.Key)
+				if err == nil {
+					entityURLs[k] = e.Value.Data.URL
+				}
+			}
+		}
+	}
+
+	var body strings.Builder
+	if article.Content != nil {
+		renderDraftBlocks(&body, article.Content.Blocks, entityURLs)
+	}
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta property="og:title" content="%s" />
+<meta name="author" content="%s" />
+<title>%s</title>
+</head>
+<body>
+<article>
+<h1>%s</h1>
+%s</article>
+</body>
+</html>`,
+		html.EscapeString(title),
+		html.EscapeString(author),
+		html.EscapeString(title),
+		html.EscapeString(title),
+		body.String(),
+	)
+}
+
+// renderDraftBlocks converts Draft.js content blocks to HTML, writing into w.
+// Consecutive list items are wrapped in a single <ul> or <ol> element.
+func renderDraftBlocks(w *strings.Builder, blocks []fxBlock, entityURLs map[int]string) {
+	i := 0
+	for i < len(blocks) {
+		b := blocks[i]
+		switch b.Type {
+		case "unordered-list-item":
+			fmt.Fprint(w, "<ul>\n")
+			for i < len(blocks) && blocks[i].Type == "unordered-list-item" {
+				fmt.Fprintf(w, "<li>%s</li>\n", draftBlockContent(blocks[i], entityURLs))
+				i++
+			}
+			fmt.Fprint(w, "</ul>\n")
+		case "ordered-list-item":
+			fmt.Fprint(w, "<ol>\n")
+			for i < len(blocks) && blocks[i].Type == "ordered-list-item" {
+				fmt.Fprintf(w, "<li>%s</li>\n", draftBlockContent(blocks[i], entityURLs))
+				i++
+			}
+			fmt.Fprint(w, "</ol>\n")
+		default:
+			tag := draftBlockTag(b.Type)
+			content := draftBlockContent(b, entityURLs)
+			if content == "" && tag == "p" {
+				// Empty paragraph acts as a visual separator.
+				fmt.Fprint(w, "<br>\n")
+			} else {
+				fmt.Fprintf(w, "<%s>%s</%s>\n", tag, content, tag)
+			}
+			i++
+		}
+	}
+}
+
+// draftBlockTag maps a Draft.js block type to its HTML tag name.
+func draftBlockTag(blockType string) string {
+	switch blockType {
+	case "header-one":
+		return "h1"
+	case "header-two":
+		return "h2"
+	case "header-three":
+		return "h3"
+	case "header-four":
+		return "h4"
+	case "header-five":
+		return "h5"
+	case "header-six":
+		return "h6"
+	case "blockquote":
+		return "blockquote"
+	case "code-block":
+		return "pre"
+	default: // "unstyled", etc.
+		return "p"
+	}
+}
+
+// draftBlockContent converts the inline-styled and entity-annotated text of a
+// single Draft.js block to an HTML fragment (no wrapping block-level tag).
+// Offsets in style/entity ranges are Unicode code-point indices.
+func draftBlockContent(b fxBlock, entityURLs map[int]string) string {
+	runes := []rune(b.Text)
+	n := len(runes)
+	if n == 0 {
+		return ""
+	}
+
+	// Collect all positions where style/entity coverage changes.
+	bset := map[int]struct{}{0: {}, n: {}}
+	for _, r := range b.InlineStyleRanges {
+		s := clampInt(r.Offset, 0, n)
+		e := clampInt(r.Offset+r.Length, 0, n)
+		bset[s] = struct{}{}
+		bset[e] = struct{}{}
+	}
+	for _, r := range b.EntityRanges {
+		s := clampInt(r.Offset, 0, n)
+		e := clampInt(r.Offset+r.Length, 0, n)
+		bset[s] = struct{}{}
+		bset[e] = struct{}{}
+	}
+
+	pts := make([]int, 0, len(bset))
+	for p := range bset {
+		pts = append(pts, p)
+	}
+	sort.Ints(pts)
+
+	var sb strings.Builder
+	for i := 0; i < len(pts)-1; i++ {
+		start, end := pts[i], pts[i+1]
+		if start >= end {
+			continue
+		}
+		seg := html.EscapeString(string(runes[start:end]))
+
+		// Collect and sort inline styles that fully cover this segment.
+		var styles []string
+		for _, r := range b.InlineStyleRanges {
+			rs := clampInt(r.Offset, 0, n)
+			re := clampInt(r.Offset+r.Length, 0, n)
+			if rs <= start && end <= re {
+				styles = append(styles, r.Style)
+			}
+		}
+		sort.Strings(styles) // deterministic nesting order
+		for _, style := range styles {
+			seg = applyInlineStyle(style, seg)
+		}
+
+		// Apply the first entity link that fully covers this segment.
+		for _, r := range b.EntityRanges {
+			rs := clampInt(r.Offset, 0, n)
+			re := clampInt(r.Offset+r.Length, 0, n)
+			if rs <= start && end <= re {
+				if url, ok := entityURLs[r.Key]; ok {
+					seg = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(url), seg)
+				}
+				break
+			}
+		}
+
+		sb.WriteString(seg)
+	}
+	return sb.String()
+}
+
+// applyInlineStyle wraps inner with the HTML tag for the given Draft.js style name.
+func applyInlineStyle(style, inner string) string {
+	switch style {
+	case "Bold", "BOLD":
+		return "<strong>" + inner + "</strong>"
+	case "Italic", "ITALIC":
+		return "<em>" + inner + "</em>"
+	case "Code", "CODE":
+		return "<code>" + inner + "</code>"
+	case "UNDERLINE":
+		return "<u>" + inner + "</u>"
+	case "STRIKETHROUGH":
+		return "<s>" + inner + "</s>"
+	default:
+		return inner
+	}
+}
+
+// clampInt returns v clamped to the range [lo, hi].
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
 // headless Chrome instance. It waits for the React application to render the
 // article content before returning the page source.
 func htmlFromXArticle(ctx context.Context, pageURL string) (string, error) {
