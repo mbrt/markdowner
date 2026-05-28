@@ -1,4 +1,4 @@
-# Uno Telegram Bot
+# Coding agents instructions
 
 ## Development
 
