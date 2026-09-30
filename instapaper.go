@@ -36,16 +36,10 @@ func runInstapaper(cmd *cobra.Command, _ []string) {
 		}
 	}
 
-	consumerKey := requireEnv("INSTAPAPER_CONSUMER_KEY")
-	consumerSecret := requireEnv("INSTAPAPER_CONSUMER_SECRET")
-	username := requireEnv("INSTAPAPER_USERNAME")
-	password := requireEnv("INSTAPAPER_PASSWORD")
+	token := requireEnv("INSTAPAPER_TOKEN")
 
 	ctx := context.Background()
-	client := instapaper.NewClient(consumerKey, consumerSecret, username, password)
-	if err := client.Authenticate(ctx); err != nil {
-		fatal(fmt.Errorf("authenticating with Instapaper: %w", err))
-	}
+	client := instapaper.NewClient(token)
 
 	fetcher := instapaper.Fetcher{
 		Client:         client,

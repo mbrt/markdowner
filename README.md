@@ -181,13 +181,10 @@ Article content in Markdown...
 
 ## Instapaper credentials
 
-The `instapaper` subcommand reads credentials from environment variables:
+The `instapaper` subcommand uses the [Instapaper API v2](https://instapaper.com/developers/overview/introduction) and reads its credentials from an environment variable:
 
 | Variable | Description |
 |----------|-------------|
-| `INSTAPAPER_CONSUMER_KEY` | OAuth consumer key |
-| `INSTAPAPER_CONSUMER_SECRET` | OAuth consumer secret |
-| `INSTAPAPER_USERNAME` | Instapaper account username/email |
-| `INSTAPAPER_PASSWORD` | Instapaper account password |
+| `INSTAPAPER_TOKEN` | OAuth 2 bearer token for your account |
 
-You can request a consumer key/secret from [Instapaper's Full API](https://www.instapaper.com/api/full).
+To get a personal access token, go to [Instapaper's applications page](https://instapaper.com/developers/applications), choose or create an application, and click "Generate access token". The token is shown only once.
