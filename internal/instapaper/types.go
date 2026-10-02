@@ -1,23 +1,25 @@
 package instapaper
 
-import "encoding/json"
-
 const (
-	// FolderIDUnread is the default folder - unread bookmarks.
-	FolderIDUnread = "unread"
-	// FolderIDArchive is a built-in folder for archived bookmarks.
-	FolderIDArchive = "archive"
+	// SectionHome is the default section - unread bookmarks.
+	SectionHome = "home"
+	// SectionArchive is the section of archived bookmarks.
+	SectionArchive = "archive"
 )
 
 // Bookmark represents an Instapaper bookmark.
 type Bookmark struct {
-	ID          int     `json:"bookmark_id"`
-	Title       string  `json:"title"`
-	URL         string  `json:"url"`
-	Description string  `json:"description"`
-	Time        float64 `json:"time"`
-	Starred     string  `json:"starred"`
-	Tags        []Tag   `json:"tags"`
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Author      string `json:"author"`
+	// Time is when the bookmark was saved, as a Unix timestamp.
+	Time int64 `json:"time"`
+	// Pubtime is when the article was published, as a Unix timestamp.
+	Pubtime *int64 `json:"pubtime"`
+	Liked   bool   `json:"liked"`
+	Tags    []Tag  `json:"tags"`
 }
 
 // Tag represents a tag on a bookmark.
@@ -26,30 +28,29 @@ type Tag struct {
 	Name string `json:"name"`
 }
 
-// BookmarkListResponse is the response from the bookmarks/list endpoint.
+// BookmarkListResponse is the response from the list bookmarks endpoint.
 type BookmarkListResponse struct {
-	Bookmarks   []Bookmark  `json:"bookmarks"`
-	Highlights  []Highlight `json:"highlights"`
-	RawResponse string
+	Bookmarks []Bookmark `json:"bookmarks"`
+	Total     int        `json:"total"`
 }
 
 // BookmarkListParams defines filtering options for ListBookmarks.
 type BookmarkListParams struct {
-	Limit  int
-	Skip   []Bookmark
-	Folder string
+	Section string
+	Limit   int
+	Offset  int
 }
 
-// DefaultBookmarkListParams provides sane defaults.
+// DefaultBookmarkListParams provides sane defaults. 500 is the maximum page
+// size allowed by the API.
 var DefaultBookmarkListParams = BookmarkListParams{
-	Limit:  500,
-	Folder: FolderIDUnread,
+	Section: SectionHome,
+	Limit:   500,
 }
 
-// Highlight represents a highlight within a bookmark.
-type Highlight struct {
-	ID         int         `json:"highlight_id"`
-	BookmarkID int         `json:"bookmark_id"`
-	Text       string      `json:"text"`
-	Time       json.Number `json:"time"`
+// ParsedBookmark is the response from the parse bookmark endpoint.
+type ParsedBookmark struct {
+	Content struct {
+		Body string `json:"body"`
+	} `json:"content"`
 }

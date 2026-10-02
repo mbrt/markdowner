@@ -1,32 +1,30 @@
 package instapaper
 
-import "fmt"
-
-// Error codes returned by the Instapaper API and internal error constants.
-const (
-	ErrRateLimitExceeded    = 1040
-	ErrNotPremiumAccount    = 1041
-	ErrApplicationSuspended = 1042
-
-	ErrInvalidURL        = 1240
-	ErrInvalidBookmarkID = 1241
-
-	ErrGeneric = 1500
-	ErrTextGen = 1550
-
-	ErrNotAuthenticated = 666
-	ErrUnmarshalError   = 667
-	ErrHTTPError        = 668
+import (
+	"encoding/json"
+	"fmt"
 )
 
 // APIError represents an error returned by the Instapaper API.
 type APIError struct {
-	ErrorCode    int `json:"error_code"`
-	StatusCode   int
-	Message      string
-	WrappedError error
+	StatusCode int
+	Message    string
 }
 
 func (r *APIError) Error() string {
-	return fmt.Sprintf("status %d: err #%d - %v", r.StatusCode, r.ErrorCode, r.Message)
+	return fmt.Sprintf("instapaper API: status %d: %s", r.StatusCode, r.Message)
+}
+
+// newAPIError builds an APIError from a non-200 response. Bodies that don't
+// follow the documented error format are reported verbatim.
+func newAPIError(status int, body []byte) *APIError {
+	var resp struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Error.Message == "" {
+		return &APIError{StatusCode: status, Message: string(body)}
+	}
+	return &APIError{StatusCode: status, Message: resp.Error.Message}
 }

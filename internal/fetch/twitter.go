@@ -446,6 +446,7 @@ func clampInt(v, lo, hi int) int {
 	}
 	return v
 }
+
 // headless Chrome instance. It waits for the React application to render the
 // article content before returning the page source.
 func htmlFromXArticle(ctx context.Context, pageURL string) (string, error) {

@@ -37,11 +37,11 @@ func (f Fetcher) FetchDocs(ctx context.Context, since time.Time) <-chan output.R
 	go func() {
 		defer close(ch)
 
-		folders := []string{FolderIDUnread, FolderIDArchive}
-		for _, folder := range folders {
-			bookmarks, err := listFolder(ctx, f.Client, folder, since)
+		sections := []string{SectionHome, SectionArchive}
+		for _, section := range sections {
+			bookmarks, err := listSection(ctx, f.Client, section, since)
 			if err != nil {
-				ch <- output.Result{Err: fmt.Errorf("fetching folder %q: %w", folder, err)}
+				ch <- output.Result{Err: fmt.Errorf("fetching section %q: %w", section, err)}
 				continue
 			}
 			f.processBookmarks(ctx, ch, bookmarks)
@@ -117,19 +117,28 @@ func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, err
 	if body == "" {
 		body = b.Description
 	}
+	author := contents.Author
+	if author == "" {
+		author = b.Author
+	}
+	date := contents.Date
+	if date == nil && b.Pubtime != nil {
+		t := time.Unix(*b.Pubtime, 0).UTC()
+		date = &t
+	}
 	var tags []string
 	for _, t := range b.Tags {
 		tags = append(tags, t.Name)
 	}
-	saved := time.Unix(int64(b.Time), 0).UTC()
+	saved := time.Unix(b.Time, 0).UTC()
 
 	return output.Doc{
 		Frontmatter: output.Frontmatter{
 			Title:  title,
-			Author: contents.Author,
+			Author: author,
 			URL:    b.URL,
 			Source: "instapaper",
-			Date:   contents.Date,
+			Date:   date,
 			Saved:  saved,
 			Tags:   tags,
 		},
@@ -138,9 +147,12 @@ func (f Fetcher) bookmarkToDoc(ctx context.Context, b Bookmark) (output.Doc, err
 	}, nil
 }
 
-func listFolder(ctx context.Context, client *Client, folder string, since time.Time) ([]Bookmark, error) {
+// listSection pages through a section, newest first, stopping at the first
+// bookmark saved before since. The API's own `since` parameter is not used
+// because it returns every bookmark *changed* since then, across all sections.
+func listSection(ctx context.Context, client *Client, section string, since time.Time) ([]Bookmark, error) {
 	params := DefaultBookmarkListParams
-	params.Folder = folder
+	params.Section = section
 
 	var all []Bookmark
 outer:
@@ -153,7 +165,7 @@ outer:
 			break
 		}
 		for _, b := range resp.Bookmarks {
-			t := time.Unix(int64(b.Time), 0)
+			t := time.Unix(b.Time, 0)
 			if !since.IsZero() && t.Before(since) {
 				break outer
 			}
@@ -162,7 +174,7 @@ outer:
 		if len(resp.Bookmarks) < params.Limit {
 			break
 		}
-		params.Skip = append(params.Skip, resp.Bookmarks...)
+		params.Offset += len(resp.Bookmarks)
 	}
 	return all, nil
 }
@@ -183,7 +195,7 @@ func bookmarkPartialDoc(b Bookmark) output.Doc {
 			Title:  title,
 			URL:    b.URL,
 			Source: "instapaper",
-			Saved:  time.Unix(int64(b.Time), 0).UTC(),
+			Saved:  time.Unix(b.Time, 0).UTC(),
 			Tags:   tags,
 		},
 	}
