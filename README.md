@@ -57,6 +57,23 @@ Fetches the page, extracts the article content (via readability), converts it to
 
 `--title`, `--author`, and `--date` cannot be used when multiple URLs are given.
 
+#### YouTube videos
+
+```sh
+markdowner url https://www.youtube.com/watch?v=aircAruvnKk
+```
+
+YouTube video URLs (`youtube.com/watch`, `youtu.be`, `/shorts/`, `/live/`) are
+converted to a transcript built from the video's captions. Captions in the
+video's original language are used: subtitles written by people if there
+are any, otherwise automatic captions. Translations are never used. If the
+video has chapters, each one becomes a `##` section. The frontmatter gets the
+video title, the channel as `author`, and the upload date as `date`.
+
+This requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your `PATH` (the
+Docker image includes it). Videos without captions in their original language
+fail with an error.
+
 ### Convert local HTML files
 
 ```sh

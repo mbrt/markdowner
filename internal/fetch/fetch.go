@@ -140,6 +140,9 @@ func (c Client) htmlOnce(ctx context.Context, pageURL string) (string, error) {
 // When downloadImages is true, external images are downloaded and stored in
 // Doc.Images.
 func (c Client) URL(ctx context.Context, pageURL string, downloadImages bool, maxImageSize int64) (output.Doc, error) {
+	if isYouTubeURL(pageURL) {
+		return c.youTube(ctx, pageURL)
+	}
 	html, err := c.HTML(ctx, pageURL)
 	if err != nil {
 		return output.Doc{}, err
