@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
 	"github.com/go-shiori/go-readability"
+	"golang.org/x/net/html"
 
 	"github.com/mbrt/markdowner/internal/images"
 )
@@ -55,8 +57,13 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool, ma
 		plugins = append(plugins, images.NewPlugin(ctx, imgs, maxImageSize))
 	}
 
+	content := article.Content
+	if main := mainContent(html, article.TextContent); main != "" {
+		content = main
+	}
+
 	conv := converter.NewConverter(converter.WithPlugins(plugins...))
-	mdc, err = conv.ConvertString(article.Content, converter.WithContext(ctx))
+	mdc, err = conv.ConvertString(content, converter.WithContext(ctx), converter.WithDomain(pageURL))
 	if err != nil {
 		return Contents{}, fmt.Errorf("converting to markdown: %w", err)
 	}
@@ -74,4 +81,100 @@ func FromHTML(ctx context.Context, pageURL, html string, downloadImages bool, ma
 		Markdown: mdc,
 		Images:   imgs,
 	}, nil
+}
+
+// minMainRatio is the fraction of the main container's text that readability
+// must have extracted to be trusted.
+const minMainRatio = 0.5
+
+// mainContent returns the HTML of the page's declared main-content container
+// (<main>, [role=main] or <article>) when readability's extraction (given as
+// plain text) covers only a small part of it, or "" when readability's result
+// should be used.
+//
+// Readability scores blocks by class names and text density, and can discard
+// large parts of pages that split an article into many blocks, such as
+// slide galleries with a caption each. The page's own declaration of its main
+// content is a better guide in that case.
+func mainContent(pageHTML, extractedText string) string {
+	doc, err := html.Parse(strings.NewReader(pageHTML))
+	if err != nil {
+		return ""
+	}
+	main := findMain(doc)
+	if main == nil {
+		return ""
+	}
+	pruneMain(main)
+	if float64(textLen(extractedText)) >= minMainRatio*float64(nodeTextLen(main)) {
+		return ""
+	}
+
+	var sb strings.Builder
+	if err := html.Render(&sb, main); err != nil {
+		return ""
+	}
+	return sb.String()
+}
+
+func findMain(n *html.Node) *html.Node {
+	if n.Type == html.ElementNode {
+		if n.Data == "main" || n.Data == "article" || attr(n, "role") == "main" {
+			return n
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if m := findMain(c); m != nil {
+			return m
+		}
+	}
+	return nil
+}
+
+// pruneMain removes non-content elements and makes lazy-loaded images
+// directly loadable.
+func pruneMain(n *html.Node) {
+	for c := n.FirstChild; c != nil; {
+		next := c.NextSibling
+		if c.Type == html.ElementNode {
+			switch c.Data {
+			case "script", "style", "noscript", "nav", "iframe", "form":
+				n.RemoveChild(c)
+				c = next
+				continue
+			case "img":
+				if attr(c, "src") == "" {
+					if ds := attr(c, "data-src"); ds != "" {
+						c.Attr = append(c.Attr, html.Attribute{Key: "src", Val: ds})
+					}
+				}
+			}
+		}
+		pruneMain(c)
+		c = next
+	}
+}
+
+func attr(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+func nodeTextLen(n *html.Node) int {
+	if n.Type == html.TextNode {
+		return textLen(n.Data)
+	}
+	total := 0
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		total += nodeTextLen(c)
+	}
+	return total
+}
+
+func textLen(s string) int {
+	return len(strings.Join(strings.Fields(s), " "))
 }
